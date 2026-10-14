@@ -465,6 +465,310 @@ static bool bake_patch_colors(Mesh *m, Planet *p, const PlanetPatch *patch, doub
     m->terrain_field = true;
     return true;
 }
+/* Dyadic coordinates retain exact edge identities while only edited terrain
+   neighborhoods receive fine samples. The outer partition is the ordinary
+   greedy LOD mesh; all hanging edge points are shared before triangulation. */
+#define LOCAL_TERRAIN_BITS 24
+#define LOCAL_TERRAIN_UNIT (UINT64_C(1) << LOCAL_TERRAIN_BITS)
+typedef struct {
+    uint64_t x0, y0, x1, y1;
+    uint16_t material;
+} LocalTerrainLeaf;
+typedef struct {
+    double u0, v0, u1, v1;
+} LocalTerrainFootprint;
+typedef struct {
+    uint64_t fixed, varying;
+    int axis;
+} LocalTerrainEdge;
+typedef struct {
+    Planet *planet;
+    const PlanetPatch *patch;
+    const EditIndex *index;
+    LocalTerrainFootprint *footprints;
+    LocalTerrainLeaf *leaves;
+    size_t count, capacity;
+    uint64_t resolution;
+    double u0, v0, size, error;
+    DVec3 face, axis_u, axis_v;
+} LocalTerrain;
+static DVec3 local_terrain_point(const LocalTerrain *t, uint64_t x, uint64_t y) {
+    return planet_surface_point(t->planet,
+                                planet_cube_direction(t->patch->face,
+                                                      t->u0 + t->size * (double)x / t->resolution,
+                                                      t->v0 + t->size * (double)y / t->resolution),
+                                true);
+}
+static bool local_terrain_leaf(LocalTerrain *t, LocalTerrainLeaf leaf) {
+    if (t->count == t->capacity) {
+        size_t capacity = t->capacity ? t->capacity * 2 : 64;
+        if (capacity < t->capacity || capacity > SIZE_MAX / sizeof(*t->leaves))
+            return false;
+        LocalTerrainLeaf *items = realloc(t->leaves, capacity * sizeof(*items));
+        if (!items)
+            return false;
+        t->leaves = items;
+        t->capacity = capacity;
+    }
+    t->leaves[t->count++] = leaf;
+    return true;
+}
+static bool local_terrain_refine(LocalTerrain *t, LocalTerrainLeaf leaf, int depth) {
+    uint64_t xm = (leaf.x0 + leaf.x1) / 2, ym = (leaf.y0 + leaf.y1) / 2;
+    DVec3 points[9] = {local_terrain_point(t, leaf.x0, leaf.y0),
+                       local_terrain_point(t, leaf.x0, leaf.y1),
+                       local_terrain_point(t, leaf.x1, leaf.y1),
+                       local_terrain_point(t, leaf.x1, leaf.y0),
+                       local_terrain_point(t, leaf.x0, ym),
+                       local_terrain_point(t, xm, leaf.y1),
+                       local_terrain_point(t, leaf.x1, ym),
+                       local_terrain_point(t, xm, leaf.y0),
+                       local_terrain_point(t, xm, ym)};
+    double deviation = 0;
+    for (int edge = 0; edge < 4; edge++)
+        deviation = fmax(
+            deviation,
+            pd_length(pd_sub(points[4 + edge], pd_scale(pd_add(points[edge], points[(edge + 1) % 4]), .5))));
+    DVec3 average = pd_scale(pd_add(pd_add(points[0], points[1]), pd_add(points[2], points[3])), .25);
+    deviation = fmax(deviation, pd_length(pd_sub(points[8], average)));
+    double span = t->patch->span_m * fmax(leaf.x1 - leaf.x0, leaf.y1 - leaf.y0) / t->resolution;
+    double padding = span < .064 ? fmin(t->error, fmax(.002, deviation * 4)) : t->error;
+    PlanetBox bounds;
+    for (int axis = 0; axis < 3; axis++) {
+        double low = component(points[0], axis), high = low;
+        for (int i = 1; i < 9; i++) {
+            low = fmin(low, component(points[i], axis));
+            high = fmax(high, component(points[i], axis));
+        }
+        bounds.lo[axis] = (int64_t)floor((low - padding - .001) * 1000);
+        bounds.hi[axis] = (int64_t)ceil((high + padding + .001) * 1000) + 1;
+    }
+    size_t candidate_count = 0;
+    index_query(t->index, 0, bounds, t->index->candidates, &candidate_count);
+    double u0 = t->u0 + t->size * (double)leaf.x0 / t->resolution,
+           u1 = t->u0 + t->size * (double)leaf.x1 / t->resolution,
+           v0 = t->v0 + t->size * (double)leaf.y0 / t->resolution,
+           v1 = t->v0 + t->size * (double)leaf.y1 / t->resolution;
+    bool affected = false;
+    double detail_error = t->error;
+    for (size_t i = 0; i < candidate_count; i++) {
+        LocalTerrainFootprint f = t->footprints[t->index->candidates[i]];
+        if (f.u0 <= u1 && f.u1 >= u0 && f.v0 <= v1 && f.v1 >= v0) {
+            affected = true;
+            PlanetBox box = t->index->edits->items[t->index->candidates[i]].box;
+            int64_t smallest = box.hi[0] - box.lo[0];
+            for (int axis = 1; axis < 3; axis++)
+                if (box.hi[axis] - box.lo[axis] < smallest)
+                    smallest = box.hi[axis] - box.lo[axis];
+            detail_error = fmin(detail_error, smallest * .001 / 32);
+        }
+    }
+    if (!affected)
+        return local_terrain_leaf(t, leaf);
+    detail_error = fmax(.000125, detail_error);
+    double detail_span = fmin(.25, .016 * sqrt(detail_error / .000125));
+    /* Large strokes need only the visible detail; tiny volumes retain a
+       sub-millimeter surface tolerance. Saved voxel addresses never change. */
+    /* A wholly overridden fine leaf has no surviving base surface. */
+    if (span <= detail_span && deviation <= detail_error)
+        for (size_t i = 0; i < candidate_count; i++) {
+            PlanetBox box = t->index->edits->items[t->index->candidates[i]].box;
+            bool inside = true;
+            for (int point = 0; point < 9; point++)
+                for (int axis = 0; axis < 3; axis++) {
+                    double mm = component(points[point], axis) * 1000;
+                    inside &= mm > box.lo[axis] + 1 + detail_error * 1000 &&
+                              mm < box.hi[axis] - 1 - detail_error * 1000;
+                }
+            if (inside)
+                return true;
+        }
+    /* Resolve the shortest procedural height band around an edit even if a
+       coarse sample aliases it. Larger undisturbed regions keep their LOD. */
+    if (depth >= LOCAL_TERRAIN_BITS || span <= .001 || (span <= detail_span && deviation <= detail_error))
+        return local_terrain_leaf(t, leaf);
+    LocalTerrainLeaf children[4];
+    int child_count;
+    uint64_t width = leaf.x1 - leaf.x0, height = leaf.y1 - leaf.y0;
+    /* Greedy rectangles can be long strips. Split their long direction first
+       rather than turning the short direction into unnecessary tiny slivers. */
+    if (width > height * 2) {
+        children[0] = (LocalTerrainLeaf){leaf.x0, leaf.y0, xm, leaf.y1, leaf.material};
+        children[1] = (LocalTerrainLeaf){xm, leaf.y0, leaf.x1, leaf.y1, leaf.material};
+        child_count = 2;
+    } else if (height > width * 2) {
+        children[0] = (LocalTerrainLeaf){leaf.x0, leaf.y0, leaf.x1, ym, leaf.material};
+        children[1] = (LocalTerrainLeaf){leaf.x0, ym, leaf.x1, leaf.y1, leaf.material};
+        child_count = 2;
+    } else {
+        children[0] = (LocalTerrainLeaf){leaf.x0, leaf.y0, xm, ym, leaf.material};
+        children[1] = (LocalTerrainLeaf){xm, leaf.y0, leaf.x1, ym, leaf.material};
+        children[2] = (LocalTerrainLeaf){leaf.x0, ym, xm, leaf.y1, leaf.material};
+        children[3] = (LocalTerrainLeaf){xm, ym, leaf.x1, leaf.y1, leaf.material};
+        child_count = 4;
+    }
+    for (int child = 0; child < child_count; child++)
+        if (!local_terrain_refine(t, children[child], depth + 1))
+            return false;
+    return true;
+}
+static int local_terrain_edge_compare(const void *aa, const void *bb) {
+    const LocalTerrainEdge *a = aa, *b = bb;
+    if (a->axis != b->axis)
+        return a->axis < b->axis ? -1 : 1;
+    if (a->fixed != b->fixed)
+        return a->fixed < b->fixed ? -1 : 1;
+    return a->varying < b->varying ? -1 : a->varying > b->varying;
+}
+static size_t local_terrain_edge_find(const LocalTerrainEdge *edges, size_t count, LocalTerrainEdge key) {
+    size_t low = 0, high = count;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        if (local_terrain_edge_compare(&edges[middle], &key) < 0)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    return low;
+}
+static DVec3 local_terrain_edge_point(const LocalTerrain *t, LocalTerrainEdge edge) {
+    return local_terrain_point(t, edge.axis ? edge.varying : edge.fixed,
+                               edge.axis ? edge.fixed : edge.varying);
+}
+static bool local_terrain_mesh(Mesh *mesh, Planet *p, const PlanetPatch *patch, const EditIndex *index,
+                               TerrainRectangle *rectangles, size_t rectangle_count,
+                               uint16_t materials[128][128], int grid, double error, double u0, double v0,
+                               double size, bool *adapted) {
+    *adapted = false;
+    LocalTerrain t = {.planet = p,
+                      .patch = patch,
+                      .index = index,
+                      .resolution = (uint64_t)grid * LOCAL_TERRAIN_UNIT,
+                      .u0 = u0,
+                      .v0 = v0,
+                      .size = size,
+                      .error = error};
+    t.face = planet_cube_direction(patch->face, 0, 0);
+    t.axis_u = pd_sub(pd_scale(planet_cube_direction(patch->face, 1, 0), sqrt(2)), t.face);
+    t.axis_v = pd_sub(pd_scale(planet_cube_direction(patch->face, 0, 1), sqrt(2)), t.face);
+    if (index->edits->count > SIZE_MAX / sizeof(*t.footprints))
+        return false;
+    t.footprints = malloc(index->edits->count * sizeof(*t.footprints));
+    if (!t.footprints)
+        return false;
+    bool ok = false;
+    LocalTerrainEdge *edges = NULL;
+    for (size_t i = 0; i < index->edits->count; i++) {
+        LocalTerrainFootprint *f = &t.footprints[i];
+        *f = (LocalTerrainFootprint){INFINITY, INFINITY, -INFINITY, -INFINITY};
+        PlanetBox box = index->edits->items[i].box;
+        for (int corner = 0; corner < 8; corner++) {
+            DVec3 point =
+                dv3((corner & 1 ? box.hi[0] : box.lo[0]) * .001, (corner & 2 ? box.hi[1] : box.lo[1]) * .001,
+                    (corner & 4 ? box.hi[2] : box.lo[2]) * .001);
+            PlanetGeo geo = planet_geographic(p, point);
+            point = planet_from_geographic(p, geo.latitude_deg, geo.longitude_deg, 0);
+            double den = pd_dot(point, t.face);
+            if (den <= 0)
+                continue;
+            double u = pd_dot(point, t.axis_u) / den, v = pd_dot(point, t.axis_v) / den;
+            f->u0 = fmin(f->u0, u);
+            f->u1 = fmax(f->u1, u);
+            f->v0 = fmin(f->v0, v);
+            f->v1 = fmax(f->v1, v);
+        }
+        /* Ellipsoid-normal displacement changes the cube projection slightly;
+           a small guard band retains fine ground beside the clipping edges. */
+        double pad = .016 / p->b_m;
+        f->u0 -= pad;
+        f->u1 += pad;
+        f->v0 -= pad;
+        f->v1 += pad;
+    }
+    bool relevant = false;
+    for (size_t i = 0; i < index->edits->count; i++) {
+        LocalTerrainFootprint f = t.footprints[i];
+        relevant |= f.u0 <= u0 + size && f.u1 >= u0 && f.v0 <= v0 + size && f.v1 >= v0;
+    }
+    if (!relevant) {
+        ok = true;
+        goto done;
+    }
+    *adapted = true;
+    for (size_t i = 0; i < rectangle_count; i++) {
+        TerrainRectangle r = rectangles[i];
+        LocalTerrainLeaf leaf = {(uint64_t)r.x * LOCAL_TERRAIN_UNIT, (uint64_t)r.y * LOCAL_TERRAIN_UNIT,
+                                 (uint64_t)(r.x + r.width) * LOCAL_TERRAIN_UNIT,
+                                 (uint64_t)(r.y + r.height) * LOCAL_TERRAIN_UNIT, materials[r.y][r.x]};
+        if (!local_terrain_refine(&t, leaf, 0))
+            goto done;
+    }
+    if (!t.count) {
+        ok = true;
+        goto done;
+    }
+    if (t.count > SIZE_MAX / 8 / sizeof(*edges))
+        goto done;
+    size_t edge_count = t.count * 8;
+    edges = malloc(edge_count * sizeof(*edges));
+    if (!edges)
+        goto done;
+    for (size_t i = 0; i < t.count; i++) {
+        LocalTerrainLeaf l = t.leaves[i];
+        LocalTerrainEdge points[8] = {{l.x0, l.y0, 0}, {l.x0, l.y1, 0}, {l.x1, l.y0, 0}, {l.x1, l.y1, 0},
+                                      {l.y0, l.x0, 1}, {l.y0, l.x1, 1}, {l.y1, l.x0, 1}, {l.y1, l.x1, 1}};
+        memcpy(edges + i * 8, points, sizeof(points));
+    }
+    qsort(edges, edge_count, sizeof(*edges), local_terrain_edge_compare);
+    size_t unique = 0;
+    for (size_t i = 0; i < edge_count; i++)
+        if (!unique || local_terrain_edge_compare(&edges[i], &edges[unique - 1]))
+            edges[unique++] = edges[i];
+    edge_count = unique;
+    for (size_t i = 0; i < t.count; i++) {
+        LocalTerrainLeaf l = t.leaves[i];
+        DVec3 center = local_terrain_point(&t, (l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2);
+        for (int edge = 0; edge < 4; edge++) {
+            int axis = edge % 2;
+            uint64_t fixed = edge == 0 ? l.x0 : edge == 1 ? l.y1 : edge == 2 ? l.x1 : l.y0;
+            uint64_t low = axis ? l.x0 : l.y0, high = axis ? l.x1 : l.y1;
+            size_t first = local_terrain_edge_find(edges, edge_count, (LocalTerrainEdge){fixed, low, axis});
+            size_t end = local_terrain_edge_find(edges, edge_count, (LocalTerrainEdge){fixed, high, axis});
+            for (size_t j = first; j < end; j++) {
+                DVec3 a = local_terrain_edge_point(&t, edges[j]),
+                      b = local_terrain_edge_point(&t, edges[j + 1]);
+                Polygon triangle = {.count = 3, .color = color(l.material)};
+                triangle.p[0] = center;
+                triangle.p[1] = a;
+                triangle.p[2] = b;
+                DVec3 normal = triangle_normal(center, a, b, planet_up(p, center));
+                triangle.normal = v3((float)normal.x, (float)normal.y, (float)normal.z);
+                if (!base_triangle(mesh, triangle, patch->origin, index))
+                    goto done;
+                if (fixed == 0 || fixed == t.resolution) {
+                    DVec3 na = planet_up(p, a), nb = planet_up(p, b);
+                    double depth = fmax(.01, patch->span_m * .003);
+                    Polygon skirt = {.count = 4,
+                                     .color = color(MAT_STONE),
+                                     .normal = v3((float)na.x, (float)na.y, (float)na.z)};
+                    skirt.p[0] = a;
+                    skirt.p[1] = b;
+                    skirt.p[2] = pd_sub(b, pd_scale(nb, depth));
+                    skirt.p[3] = pd_sub(a, pd_scale(na, depth));
+                    if (!base_triangle(mesh, skirt, patch->origin, index))
+                        goto done;
+                }
+            }
+        }
+    }
+    ok = true;
+done:
+    free(edges);
+    free(t.leaves);
+    free(t.footprints);
+    return ok;
+}
+
 bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     m->count = 0;
     m->terrain_field = false;
@@ -487,8 +791,8 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
                : patch->span_m < 80             ? 64
                : native && patch->span_m < 4000 ? 64
                                                 : PLANET_SURFACE_GRID;
-    double error = edits.count ? .00025 : fmin(2000, fmax(.00025, patch->span_m * .00008));
-    if (patch->terrain_lod > 0 && !edits.count) {
+    double error = fmin(2000, fmax(.00025, patch->span_m * .00008));
+    if (patch->terrain_lod > 0) {
         error = fmin(2000, fmax(error, ldexp(.00025, patch->terrain_lod - 1)));
         double spacing = fmax(.05, error * 8);
         while (grid > 8 && patch->span_m / (grid / 2) <= spacing)
@@ -533,7 +837,7 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     /* At coarse detail, paint boundaries should not split the height mesh.
        Keep wet/dry boundaries for the separate water pipeline, and retain all
        material geometry for edits and sub-meter terrain. */
-    if (!edits.count && error >= 1) {
+    if (error >= 1) {
         uint16_t land = MAT_AIR;
         bool varied = false;
         for (int y = 0; y < grid; y++)
@@ -581,10 +885,14 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
             rectangles[rectangle_count++] =
                 (TerrainRectangle){(uint16_t)x, (uint16_t)y, (uint16_t)width, (uint16_t)height};
         }
+    bool local = edits.count > 0;
+    if (local && !local_terrain_mesh(m, p, patch, &index, rectangles, rectangle_count, materials, grid, error,
+                                     u0, v0, size, &local))
+        goto failed;
     /* A merged edge must retain the corners of its neighbouring rectangles.
        Otherwise independently approximated edges leave visible sky cracks.
        Plan the partition first, then triangulate matching shared boundaries. */
-    for (size_t rectangle = 0; rectangle < rectangle_count; rectangle++) {
+    for (size_t rectangle = 0; !local && rectangle < rectangle_count; rectangle++) {
         TerrainRectangle r = rectangles[rectangle];
         int x = r.x, y = r.y, width = r.width, height = r.height;
         DVec3 corners[4] = {vertices[y][x], vertices[y + height][x], vertices[y + height][x + width],
@@ -669,7 +977,7 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
         vertex->normal = v3((float)n.x, (float)n.y, (float)n.z);
     }
     double depth = fmax(.01, patch->span_m * .003);
-    for (int edge = 0; edge < 4; edge++)
+    for (int edge = 0; !local && edge < 4; edge++)
         for (int first = 0; first < grid;) {
             int last = first + 1;
             int owner = edge == 0   ? owners[first][0]

@@ -7,8 +7,8 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Claim | What the implementation currently does | Remaining work |
 | --- | --- | --- |
 | Mesh-backed terrain and 1 mm voxels | Unmodified terrain is an implicit height field rendered as meshes. Modified volumes are stored in sparse voxel trees and their boundaries are rendered as meshes. | Natural excavation still has cuboid boundaries; normal smoothing is not a density-volume mesher. Improve the visible edit surface while preserving material values. |
-| Greedy meshing | Merges terrain rectangles within an error tolerance and equal-material edit faces. Shared terrain edges and skirts retain matching vertices. Terrain sampling/merging now use quantized screen-space error. | Further localize fine clipping around edits and control total rendering cost. |
-| Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes remain cached by slot/memory pressure. Loaded coarse parents now own their coverage until replacement regions finish, with child promotion after completion. | Cold views without loaded parents still stream progressively; bootstrap coverage and edit-heavy cases need further work. |
+| Greedy meshing | Merges terrain rectangles within an error tolerance and equal-material edit faces. Shared terrain edges and skirts retain matching vertices. Terrain sampling/merging now use quantized screen-space error. | Local refinement now replaces the patch-wide edit penalty; a density-volume mesher and broader survey fixtures remain. |
+| Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes remain cached by slot/memory pressure. Loaded coarse parents now own their coverage until replacement regions finish, with child promotion after completion. | Cold views without loaded parents still stream progressively; bootstrap coverage remains unfinished. |
 | Occlusion culling | Vulkan bounding-box queries skip hidden patches when the camera and contributing geometry are unchanged. | Moving the camera invalidates results conservatively. Validate interactions with retained replacement coverage and expose its cost. |
 | Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover land-cover/water classes, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
 | Procedural terrain | Shared biome/layer/climate rules and source-resolution-aware ridged/micro detail supplement measured heights; a reproducible tool exports synthetic or actual Earth samples. | Biome-aware generation and an export tool are implemented; climate/geology are estimates, with no hydraulic erosion model. |
@@ -23,7 +23,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Reproduce and fix sky cracks inside greedy terrain patches; add topology regression and matching skirt boundaries.
 - [x] Make all graphics test suites share the same GPU lock.
 - [x] Reduce unmodified terrain triangle cost using projected detail and measured error (default ground fixture: about 2.3 million to 54,000 triangles with biome colours).
-- [ ] Further localize fine terrain around edits and validate total cost with dense excavation.
+- [x] Further localize fine terrain around edits and validate total cost with 1 mm and 1 m excavations.
 - [x] Keep loaded coarse coverage until finer replacements finish; cache useful meshes through camera turns.
 - [ ] Improve first-view coverage when no parent meshes have loaded yet.
 - [x] Retain hidden mesh buffers through camera turns, remove frame timeout eviction, and expose retained memory in F1.
@@ -72,3 +72,7 @@ Each editable body needs an independent integer voxel coordinate grid with baryc
 ## Biome terrain checkpoint
 
 See [landscape generation and texture caching](landscapes.md) for the shared rules, tool, fixed texture-memory cost and limits. Eight new material IDs append without moving existing saved IDs; terrain recipe 7 upgrades earlier recipe metadata without changing stored edit payloads. Ground geometry is 162,777 vertices across 527 patches, and the stronger relief also has matching greedy skirt boundaries. Phase transitions, finer providers, natural density-based excavation, major moons and rotating independent voxel worlds remain unfinished.
+
+## Local edit meshing checkpoint
+
+[Local terrain refinement](terrain-edit-meshing.md) removes the patch-wide 0.25 mm penalty caused by tiny edits. Complete edited-view fixtures fell from 2.04–2.13 million vertices to 165,423–188,661 vertices, including voxel walls, without changing stored matter. Matched adaptive edges and skirts, physical cut positions, adjacent terrain heights, and Vulkan editing/persistence were verified. Natural cut walls still have cuboid geometry; cold-view coverage, volume meshing, providers, moons and body frames remain unfinished.
