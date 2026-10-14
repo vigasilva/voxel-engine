@@ -1,0 +1,90 @@
+{
+  "acknowledgements": {
+    "awards": [
+      1043681,
+      1559691,
+      1542736,
+      1810976,
+      2129685
+    ],
+    "derived_from": "Vantor stereo imagery via SETSM; source imagery is not included",
+    "funding": "NSF-OPP",
+    "institutions": [
+      "Polar Geospatial Center, University of Minnesota"
+    ],
+    "policy": "https://www.pgc.umn.edu/guides/user-services/acknowledgement-policy/"
+  },
+  "attribution": "Polar Geospatial Center, University of Minnesota; NSF, NGA; arcticdem / CC BY 4.0; ESA WorldCover 2021 v200 / CC BY 4.0",
+  "body_id": 399,
+  "bounds": [
+    15.64,
+    78.22,
+    15.65,
+    78.23
+  ],
+  "coverage_kind": "raster validity; bounding boxes are discovery hints",
+  "datum": "EGM2008",
+  "finest_spacing_m": 2.0,
+  "flags": 1,
+  "label": "34_52_2_1_2m_v4.1",
+  "provider": "arcticdem",
+  "provider_documentation": "https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/",
+  "publication_day": 20230719,
+  "retrieved_utc": "2026-10-14T18:06:48.856995+00:00",
+  "source_datum": "ellipsoid",
+  "source_epsg": 3413,
+  "source_spacing_m": 2.0,
+  "sources": [
+    {
+      "product": {
+        "citation": "https://doi.org/10.7910/DVN/3VDC4W",
+        "dataset": "arcticdem-mosaics-v4.1-2m",
+        "downloadURL": "https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/2m/34_52/34_52_2_1_2m_v4.1_dem.tif",
+        "footprint": {
+          "coordinates": [
+            [
+              [
+                [
+                  16.391365,
+                  78.471966
+                ],
+                [
+                  17.453148,
+                  78.067177
+                ],
+                [
+                  15.522469,
+                  77.848277
+                ],
+                [
+                  14.414631,
+                  78.245316
+                ],
+                [
+                  16.391365,
+                  78.471966
+                ]
+              ]
+            ]
+          ],
+          "type": "MultiPolygon"
+        },
+        "license": "CC-BY-4.0",
+        "metadata_url": "https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/2m/34_52/34_52_2_1_2m_v4.1_meta.txt",
+        "publicationDate": "2023-07-19T00:00:00Z",
+        "source_end": "2021-05-03T00:00:00Z",
+        "source_epsg": 3413,
+        "source_start": "2011-05-22T00:00:00Z",
+        "tile_valid_fraction": 0.763935,
+        "title": "34_52_2_1_2m_v4.1"
+      },
+      "source_crs": "PROJCRS[\"WGS 84 / NSIDC Sea Ice Polar Stereographic North\",\n    BASEGEOGCRS[\"WGS 84\",\n        ENSEMBLE[\"World Geodetic System 1984 ensemble\",\n            MEMBER[\"World Geodetic System 1984 (Transit)\"],\n            MEMBER[\"World Geodetic System 1984 (G730)\"],\n            MEMBER[\"World Geodetic System 1984 (G873)\"],\n            MEMBER[\"World Geodetic System 1984 (G1150)\"],\n            MEMBER[\"World Geodetic System 1984 (G1674)\"],\n            MEMBER[\"World Geodetic System 1984 (G1762)\"],\n            MEMBER[\"World Geodetic System 1984 (G2139)\"],\n            MEMBER[\"World Geodetic System 1984 (G2296)\"],\n            ELLIPSOID[\"WGS 84\",6378137,298.257223563,\n                LENGTHUNIT[\"metre\",1]],\n            ENSEMBLEACCURACY[2.0]],\n        PRIMEM[\"Greenwich\",0,\n            ANGLEUNIT[\"degree\",0.0174532925199433]],\n        ID[\"EPSG\",4979]],\n    CONVERSION[\"US NSIDC Sea Ice polar stereographic north\",\n        METHOD[\"Polar Stereographic (variant B)\",\n            ID[\"EPSG\",9829]],\n        PARAMETER[\"Latitude of standard parallel\",70,\n            ANGLEUNIT[\"degree\",0.0174532925199433],\n            ID[\"EPSG\",8832]],\n        PARAMETER[\"Longitude of origin\",-45,\n            ANGLEUNIT[\"degree\",0.0174532925199433],\n            ID[\"EPSG\",8833]],\n        PARAMETER[\"False easting\",0,\n            LENGTHUNIT[\"metre\",1],\n            ID[\"EPSG\",8806]],\n        PARAMETER[\"False northing\",0,\n            LENGTHUNIT[\"metre\",1],\n            ID[\"EPSG\",8807]]],\n    CS[Cartesian,3],\n        AXIS[\"easting (X)\",south,\n            MERIDIAN[45,\n                ANGLEUNIT[\"degree\",0.0174532925199433]],\n            ORDER[1],\n            LENGTHUNIT[\"metre\",1]],\n        AXIS[\"northing (Y)\",south,\n            MERIDIAN[135,\n                ANGLEUNIT[\"degree\",0.0174532925199433]],\n            ORDER[2],\n            LENGTHUNIT[\"metre\",1]],\n        AXIS[\"ellipsoidal height (h)\",up,\n            ORDER[3],\n            LENGTHUNIT[\"metre\",1]],\n    USAGE[\n        SCOPE[\"unknown\"],\n        AREA[\"Northern hemisphere - north of 60\u00b0N onshore and offshore, including Arctic.\"],\n        BBOX[60,-180,90,180]],\n    REMARK[\"Promoted to 3D from EPSG:3413\"]]",
+      "source_spacing_m": 2.0
+    }
+  ],
+  "surface": "surface-model",
+  "target_crs": "EPSG:4326+3855",
+  "transform_accuracy_m": null,
+  "valid_fraction": 1.0,
+  "vertical_accuracy_m": null
+}

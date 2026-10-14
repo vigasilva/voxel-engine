@@ -67,12 +67,28 @@ int main(void) {
     CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0 && s.requested_fine);
     CHECK(!poll(&s, &p, location));
     CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process); /* no source: remember the checked cell */
+    location = (PlanetGeo){86.055, 15.045, 150};
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0 && s.requested_fine);
+    CHECK(poll(&s, &p, location));
+    CHECK(planet_detail_source(&p, location.latitude_deg, location.longitude_deg, &source_info));
+    CHECK(source_info.provider == TERRAIN_PROVIDER_ARCTICDEM && source_info.source_datum == HEIGHT_ELLIPSOID);
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process);
+    location = (PlanetGeo){-77.855, 166.665, 150};
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0 && s.requested_fine);
+    CHECK(poll(&s, &p, location));
+    CHECK(planet_detail_source(&p, location.latitude_deg, location.longitude_deg, &source_info));
+    CHECK(source_info.provider == TERRAIN_PROVIDER_REMA && source_info.kind == TERRAIN_SURFACE_MODEL);
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process);
+    location = (PlanetGeo){86.075, 15.045, 19000};
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process); /* no GLO coverage; no repeated invalid request */
     planet_destroy(&p);
     char file[512];
     snprintf(file, sizeof(file), "%s/earth_detail/300_300.pdem", tmp);
     unlink(file);
-    snprintf(file, sizeof(file), "%s/earth_detail/fine.pdem", tmp);
-    unlink(file);
+    for (int provider = 2; provider <= 4; provider++) {
+        snprintf(file, sizeof(file), "%s/earth_detail/fine-%d.pdem", tmp, provider);
+        unlink(file);
+    }
     snprintf(file, sizeof(file), "%s/earth_detail", tmp);
     rmdir(file);
     snprintf(file, sizeof(file), "%s/terrain-fetch.log", tmp);

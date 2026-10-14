@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch measured terrain at its source resolution, with verified vertical CRS.
-USGS 3DEP OPR/1 m/S1M discovery supplements the existing global GLO-30 cache.
+USGS 3DEP and public PGC polar mosaics supplement the global GLO-30 cache.
 Only small georeferenced cells are read from remote COGs; no full survey download.
 """
 import argparse
@@ -24,6 +24,45 @@ DATASETS = ['Original Product Resolution (OPR) Digital Elevation Model (DEM)',
             'Digital Elevation Model (DEM) 1 meter', 'Seamless 1-m DEM (S1M)']
 API = 'https://tnmaccess.nationalmap.gov/api/v1/products'
 PROVIDER_DOC = 'https://www.usgs.gov/3d-elevation-program/about-3dep-products-services'
+PGC_API = 'https://stac.pgc.umn.edu/api/v1/'
+PGC_DOC = 'https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/'
+
+
+def polar_acknowledgements(provider):
+    if provider not in ('arcticdem','rema'):
+        return None
+    return dict(institutions=['Polar Geospatial Center, University of Minnesota']+
+                (['Byrd Polar and Climate Research Center, The Ohio State University'] if provider=='rema' else []),
+                funding='NSF-OPP',
+                awards=[1043681,1559691,1542736,1810976,2129685] if provider=='arcticdem' else
+                       [1043681,1542736,1543501,1559691,1810976,2129685],
+                derived_from='Vantor stereo imagery via SETSM; source imagery is not included',
+                policy='https://www.pgc.umn.edu/guides/user-services/acknowledgement-policy/')
+
+
+def automatic_provider(lat, lon):
+    if 24 <= lat <= 50 and -125 <= lon <= -66:
+        return 'usgs-3dep'
+    if lat >= 60:
+        return 'arcticdem'
+    if lat <= -60:
+        return 'rema'
+    return None
+
+
+def cached_catalogue(cache, fetch, refresh=False):
+    if cache and cache.exists() and not refresh and cache.stat().st_size <= 8*1024*1024:
+        try:
+            saved = json.loads(cache.read_text())
+            if 0 <= time.time()-saved['retrieved_unix'] < 7*86400 and isinstance(saved['products'], list):
+                return saved['products']
+        except (KeyError, TypeError, ValueError, OSError):
+            pass
+    products = fetch()
+    if cache:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(cache, (json.dumps(dict(retrieved_unix=time.time(), products=products), allow_nan=False)+'\n').encode())
+    return products
 
 
 def run(*args):
@@ -106,6 +145,14 @@ def raster_source(product, latitude, source_srs=None, default_datum=None):
             datum = 'unknown' # The full declared CRS is retained and strictly transformed.
     elif len(horizontal['coordinate_system']['axis']) == 3:
         datum = 'ellipsoid'
+    elif default_datum == 'ellipsoid':
+        # PGC explicitly documents WGS84 ellipsoidal heights, although its
+        # TIFFs tag only a 2D polar CRS. Promote that verified CRS to 3D.
+        if epsg not in (3413, 3031):
+            raise ValueError('PGC ellipsoid reference requires the documented WGS84 polar CRS')
+        datum = 'ellipsoid'
+        wkt = subprocess.check_output(['projinfo', '-q', '-o', 'WKT2:2019', '--3d', wkt],
+                                      env=ENV, timeout=60, text=True).strip()
     elif default_datum:
         datum = default_datum
         vcode = {'EGM2008': 3855, 'NAVD88': 5703, 'EGM1996': 5773}[datum]
@@ -134,7 +181,7 @@ def tile_bounds(lat, lon, spacing):
     latkey, lonkey = math.floor(lat*scale), math.floor(lon*scale)
     core = (lonkey/scale, latkey/scale, (lonkey+1)/scale, (latkey+1)/scale)
     halo_y = max(20, spacing*2)/111319.49079327358
-    halo_x = halo_y/max(.01, abs(math.cos(math.radians(lat))))
+    halo_x = halo_y/max(.001, abs(math.cos(math.radians(lat))))
     bounds = (max(-180,core[0]-halo_x),max(-90,core[1]-halo_y),
               min(180,core[2]+halo_x),min(90,core[3]+halo_y))
     return scale, latkey, lonkey, core, bounds
@@ -188,7 +235,7 @@ def import_sources(lat, lon, output, sources, provider='usgs-3dep', surface='bar
     cached = read_pack(target)
     if cached and cached['metadata'] and not refresh:
         return target
-    dx = best/(111319.49079327358*max(.01,abs(math.cos(math.radians((core[1]+core[3])*.5)))))
+    dx = best/(111319.49079327358*max(.001,abs(math.cos(math.radians((core[1]+core[3])*.5)))))
     dy = best/111319.49079327358
     nx,ny=max(2,round((bounds[2]-bounds[0])/dx)),max(2,round((bounds[3]-bounds[1])/dy))
     if nx*ny > 8*1024*1024:
@@ -221,8 +268,12 @@ def import_sources(lat, lon, output, sources, provider='usgs-3dep', surface='bar
                     source_epsg=used[-1]['epsg'],body_id=399,bounds=core,label=used[-1]['product']['title'][:47],
                     retrieved_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     valid_fraction=float(np.isfinite(heights).mean()),
-                    target_crs='EPSG:4326+3855',provider_documentation=PROVIDER_DOC if provider=='usgs-3dep' else None,
-                    attribution='USGS 3DEP / public domain; ESA WorldCover 2021 v200 / CC BY 4.0',
+                    target_crs='EPSG:4326+3855',
+                    provider_documentation=PROVIDER_DOC if provider=='usgs-3dep' else PGC_DOC if provider in ('arcticdem','rema') else None,
+                    attribution=('USGS 3DEP / public domain' if provider=='usgs-3dep' else
+                                 'Polar Geospatial Center, University of Minnesota; NSF, NGA; '+provider+' / CC BY 4.0' if provider in ('arcticdem','rema') else
+                                 'User-supplied terrain; see source terms')+'; ESA WorldCover 2021 v200 / CC BY 4.0',
+                    acknowledgements=polar_acknowledgements(provider),
                     coverage_kind='raster validity; bounding boxes are discovery hints',
                     sources=[dict(product=s['product'],source_crs=s['source_srs'],source_spacing_m=s['spacing_m']) for s in used])
         axes = (bounds[0]+(bounds[2]-bounds[0])/nx*.5,bounds[1]+(bounds[3]-bounds[1])/ny*.5,
@@ -235,19 +286,7 @@ def import_sources(lat, lon, output, sources, provider='usgs-3dep', surface='bar
 def discover_sources(lat,lon,cache_root=None,refresh=False):
     _,_,_,_,bounds=tile_bounds(lat,lon,1)
     cache=Path(cache_root)/f'.usgs-catalog-{math.floor(lat*100)}_{math.floor(lon*100)}.json' if cache_root else None
-    products=None
-    if cache and cache.exists() and not refresh and cache.stat().st_size <= 8*1024*1024:
-        try:
-            saved=json.loads(cache.read_text())
-            if 0 <= time.time()-saved['retrieved_unix'] < 7*86400 and isinstance(saved['products'],list):
-                products=saved['products']
-        except (KeyError,TypeError,ValueError,OSError):
-            pass
-    if products is None:
-        products=usgs_products(bounds)
-        if cache:
-            cache.parent.mkdir(parents=True,exist_ok=True)
-            atomic_write(cache,(json.dumps(dict(retrieved_unix=time.time(),products=products),allow_nan=False)+'\n').encode())
+    products=cached_catalogue(cache,lambda:usgs_products(bounds),refresh)
     sources=[]
     for product in products:
         try:
@@ -257,6 +296,73 @@ def discover_sources(lat,lon,cache_root=None,refresh=False):
             sources.append(raster_source(product,lat,default_datum=default))
         except (subprocess.SubprocessError,OSError,ValueError) as error:
             print(f'Skipping unverified survey {product["title"]}: {error}',flush=True,file=sys.stderr)
+    return sources
+
+
+def pgc_products(provider, bounds, collections):
+    # Only public 2 m mosaics; never substitute hillshades, thumbnails or
+    # restricted strips. Choose the newest public mosaic release dynamically.
+    versions = []
+    for collection in collections:
+        match = re.fullmatch(provider+r'-mosaics-v(\d+)\.(\d+)-2m', collection['id'])
+        if match and collection.get('license') == 'CC-BY-4.0':
+            versions.append((tuple(map(int,match.groups())), collection['id']))
+    if not versions:
+        raise ValueError('No public 2 m PGC mosaic collection available')
+    collection = max(versions)[1]
+    url = PGC_API+'search?'+urllib.parse.urlencode(dict(collections=collection,bbox=','.join(map(str,bounds)),limit=100))
+    products = {}
+    visited = set()
+    while url:
+        if url in visited or len(visited) >= 8:
+            raise ValueError('PGC local catalogue pagination exceeds bounds')
+        visited.add(url)
+        page = request_json(url)
+        for feature in page.get('features', []):
+            props = feature.get('properties', {})
+            asset = feature.get('assets', {}).get('dem', {})
+            href = asset.get('href', '')
+            parsed = urllib.parse.urlparse(href)
+            prefix = '/'+provider+'/mosaics/'+collection.split('-')[2]+'/2m/'
+            if (feature.get('collection') != collection or props.get('license') != 'CC-BY-4.0' or
+                    props.get('gsd') != 2 or parsed.scheme != 'https' or
+                    parsed.netloc != 'pgc-opendata-dems.s3.us-west-2.amazonaws.com' or
+                    not parsed.path.startswith(prefix) or not parsed.path.endswith('_dem.tif')):
+                continue
+            products[href] = dict(title=feature['id'],downloadURL=href,dataset=collection,
+                                  publicationDate=props.get('published') or props.get('created'),
+                                  license=props['license'],footprint=feature.get('geometry'),
+                                  source_start=props.get('start_datetime'),source_end=props.get('end_datetime'),
+                                  source_epsg=3413 if provider=='arcticdem' else 3031,
+                                  tile_valid_fraction=props.get('pgc:data_perc'),
+                                  metadata_url=feature.get('assets',{}).get('metadata',{}).get('href'),
+                                  citation='https://doi.org/10.7910/DVN/3VDC4W' if collection=='arcticdem-mosaics-v4.1-2m' else
+                                           'https://doi.org/10.7910/DVN/EBW8UC' if collection=='rema-mosaics-v2.0-2m' else None)
+        next_link = next((link for link in page.get('links',[]) if link.get('rel')=='next'), None)
+        url = urllib.parse.urljoin(url,next_link['href']) if next_link else None
+        if url and (not url.startswith(PGC_API) or next_link.get('method','GET') != 'GET'):
+            raise ValueError('Unsupported PGC pagination link')
+    return list(products.values())
+
+
+def discover_polar_sources(lat,lon,provider,cache_root=None,refresh=False):
+    if provider not in ('arcticdem','rema'):
+        raise ValueError('Invalid polar provider')
+    root = Path(cache_root) if cache_root else None
+    collection_cache = root/'.pgc-collections.json' if root else None
+    collections = cached_catalogue(collection_cache,lambda:request_json(PGC_API+'collections')['collections'],refresh)
+    _,_,_,_,bounds = tile_bounds(lat,lon,2)
+    cache = root/f'.{provider}-catalog-{math.floor(lat*100)}_{math.floor(lon*100)}.json' if root else None
+    products = cached_catalogue(cache,lambda:pgc_products(provider,bounds,collections),refresh)
+    sources = []
+    for product in products:
+        try:
+            source = raster_source(product,lat,default_datum='ellipsoid')
+            if source['epsg'] != product['source_epsg'] or source['datum'] != 'ellipsoid' or abs(source['spacing_m']-2) > .01:
+                raise ValueError('PGC asset disagrees with its declared projection/reference/spacing')
+            sources.append(source)
+        except (subprocess.SubprocessError,OSError,ValueError) as error:
+            print(f'Skipping unverified polar mosaic {product["title"]}: {error}',flush=True,file=sys.stderr)
     return sources
 
 
@@ -279,13 +385,15 @@ def main():
     if args.vertical_accuracy is not None and (not math.isfinite(args.vertical_accuracy) or args.vertical_accuracy<0):
         parser.error('Vertical accuracy must be a documented nonnegative value')
     sources=[]
+    provider=automatic_provider(args.lat,args.lon)
     if args.source:
         for name in args.source:
             product=dict(title=Path(urllib.parse.urlparse(name).path).name,downloadURL=name,publicationDate=None)
             sources.append(raster_source(product,args.lat,source_srs=args.source_srs))
-    elif args.quality!='glo30' and (24<=args.lat<=50 and -125<=args.lon<=-66 or args.quality=='fine' or args.query_only):
+    elif args.quality!='glo30' and (provider or args.quality=='fine' or args.query_only):
         try:
-            sources=discover_sources(args.lat,args.lon,args.output,args.refresh)
+            sources=(discover_polar_sources(args.lat,args.lon,provider,args.output,args.refresh) if provider in ('arcticdem','rema') else
+                     discover_sources(args.lat,args.lon,args.output,args.refresh))
         except (subprocess.SubprocessError,OSError,ValueError) as error:
             if args.quality=='fine' or args.query_only: raise
             print(f'Fine terrain catalogue unavailable: {error}; using GLO-30 fallback',flush=True)
@@ -293,20 +401,23 @@ def main():
         print(json.dumps([dict(title=s['product']['title'],url=s['product']['downloadURL'],source_spacing_m=s['spacing_m'],
                                datum=s['datum'],source_epsg=s['epsg']) for s in sources],indent=2))
         return
-    coarse=None
-    if not args.source and args.quality!='fine':
-        coarse=fetch_glo(args.lat,args.lon,args.output,args.upgrade_cover)
     if sources:
         try:
-            import_sources(args.lat,args.lon,args.output,sources,'local' if args.source else 'usgs-3dep',
-                           args.surface_kind if args.source else 'bare-ground',args.vertical_accuracy,args.refresh)
+            import_sources(args.lat,args.lon,args.output,sources,'local' if args.source else provider or 'usgs-3dep',
+                           args.surface_kind if args.source else 'surface-model' if provider in ('arcticdem','rema') else 'bare-ground',
+                           args.vertical_accuracy,args.refresh)
             return
         except (subprocess.SubprocessError,OSError,ValueError) as error:
-            if coarse is None:raise
-            print(f'Fine survey conversion unavailable: {error}; retaining {coarse}',flush=True)
+            if args.quality=='fine' or args.source:raise
+            print(f'Fine survey conversion unavailable: {error}; using cached/global fallback',flush=True)
     elif args.quality=='fine' or args.source:
         raise ValueError('No verified public fine terrain coverage at this location')
-    print(f'Using measured global/regional fallback: {coarse}',flush=True)
+    # Prioritize the near-player fine crop. An unavailable broad polar crop
+    # must not delay or prevent valid detailed terrain from being installed.
+    coarse=None
+    if not args.source and args.quality!='fine' and -85<=args.lat<=85 and -179.9<=args.lon<179.9:
+        coarse=fetch_glo(args.lat,args.lon,args.output,args.upgrade_cover)
+    print(f'Using measured global/regional fallback: {coarse or "existing engine relief; no fine coverage"}',flush=True)
 
 
 if __name__=='__main__':

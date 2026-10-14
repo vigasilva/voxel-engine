@@ -122,7 +122,7 @@ Planet checks additionally cover 32,768 collected regions, a 589,824-vertex exac
 
 See [planetary architecture](docs/planet.md), [Earth data provenance](data/README.md), and the [original laboratory documentation](docs/laboratory.md). The old `.vxw` laboratory saves and new `.vxp` planet saves are separate formats.
 
-The [survey importer and source inspector](docs/terrain-sources.md) now add public USGS 1 m/OPR bare-ground data where available. A small 1 m Colorado crop is included; larger/coarser terrain remains the fallback. The engine selects valid overlapping sources, keeps unknown accuracy explicit, and converts incoming height references to EGM2008. F10 requests finer surveys near the ground in the contiguous US.
+The [survey importer and source inspector](docs/terrain-sources.md) add public USGS 1 m/OPR bare-ground data and PGC ArcticDEM/REMA 2 m surface models where available. Small Colorado, Longyearbyen and McMurdo crops are included; larger/coarser terrain remains the fallback. The engine selects valid overlapping sources, keeps unknown accuracy explicit, and converts incoming height references to EGM2008. F10 requests finer surveys near the ground in the contiguous US and polar regions, including beyond 85° latitude.
 
 ## Mesh terrain and generated distant textures
 

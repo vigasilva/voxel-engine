@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import zlib
+from unittest.mock import patch
 import numpy as np
 
 root=Path(__file__).resolve().parents[1]
@@ -42,7 +43,46 @@ with tempfile.TemporaryDirectory(prefix='voxel-import-') as directory:
         pass
     assert target.read_bytes()==original # failed imports preserve the validated cache
     assert fetch.tile_bounds(40,-105,.25)[0]>fetch.tile_bounds(40,-105,1)[0]
+    _,_,_,core,bounds=fetch.tile_bounds(89.895,15,2)
+    assert abs((core[0]-bounds[0])*111319.49079327358*np.cos(np.deg2rad(89.895))-20)<.001
     assert fetch.publication_day(None)==0 and fetch.publication_day('2022-02-10')==20220210
+    assert fetch.automatic_provider(78,15)=='arcticdem' and fetch.automatic_provider(-77,166)=='rema'
+    assert fetch.automatic_provider(40,-105)=='usgs-3dep' and fetch.automatic_provider(20,15) is None
+    collections=[dict(id='arcticdem-mosaics-v4.1-2m',license='CC-BY-4.0'),
+                 dict(id='arcticdem-mosaics-v3.0-2m',license='CC-BY-4.0'),
+                 dict(id='arcticdem-mosaics-v9.0-2m',license='proprietary'),
+                 dict(id='arcticdem-mosaics-v4.1-10m',license='CC-BY-4.0')]
+    url='https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/arcticdem/mosaics/v4.1/2m/01_01/tile_dem.tif'
+    feature=dict(id='test mosaic',collection=collections[0]['id'],geometry=None,
+                 properties=dict(gsd=2,license='CC-BY-4.0',published='2023-06-01',start_datetime='2010-01-01',end_datetime='2020-01-01'),
+                 assets=dict(dem=dict(href=url)))
+    thumbnail=dict(feature,assets=dict(dem=dict(href=url.replace('_dem.tif','_browse.tif'))))
+    restricted=dict(feature,properties=dict(feature['properties'],license='proprietary'))
+    page=dict(features=[feature,thumbnail,restricted],links=[dict(rel='next',href=fetch.PGC_API+'search?page=2')])
+    with patch.object(fetch,'request_json',side_effect=[page,dict(features=[feature],links=[])]) as requests:
+        products=fetch.pgc_products('arcticdem',(15,78,15.01,78.01),collections)
+        assert len(products)==1 and products[0]['source_epsg']==3413 and products[0]['publicationDate']=='2023-06-01'
+        assert requests.call_count==2 and 'arcticdem-mosaics-v4.1-2m' in requests.call_args_list[0].args[0]
+    with patch.object(fetch,'request_json',return_value=dict(features=[],links=[dict(rel='next',href='https://other.example/next')])):
+        try:
+            fetch.pgc_products('arcticdem',(15,78,15.01,78.01),collections)
+            raise AssertionError('Unverified STAC pagination followed')
+        except ValueError:
+            pass
+    catalogue=tmp/'.catalog.json'
+    with patch.object(fetch,'request_json',return_value={}) as request:
+        assert fetch.cached_catalogue(catalogue,lambda:[],False)==[]
+        assert fetch.cached_catalogue(catalogue,lambda:request('unexpected'),False)==[]
+        request.assert_not_called() # Empty coverage is cached too.
+        assert fetch.cached_catalogue(catalogue,lambda:products,True)==products
+    # Runtime fine requests beyond GLO-30's range must still import the polar
+    # source, without requiring an unsupported global crop first.
+    with patch.object(sys,'argv',['fetch_terrain','--lat','86.055','--lon','15.045','--output',str(tmp)]), \
+         patch.object(fetch,'discover_polar_sources',return_value=[{}]), \
+         patch.object(fetch,'import_sources') as importer, patch.object(fetch,'fetch_glo') as glo:
+        fetch.main()
+        assert importer.call_args.args[4:6]==('arcticdem','surface-model')
+        glo.assert_not_called()
     # Deliberately projected, georeferenced elevation-only raster; this tests
     # coordinate reprojection rather than copying the importer's own output.
     if all(shutil.which(command) for command in ('gdal_translate','gdalwarp','gdalinfo','projinfo')):
@@ -68,4 +108,20 @@ with tempfile.TemporaryDirectory(prefix='voxel-import-') as directory:
             raise AssertionError('Unknown vertical datum silently accepted')
         except ValueError:
             pass
+        # Verify the documented PGC reference becomes a genuine 3D CRS and
+        # retains its nominal horizontal identity; no online geoid required.
+        for epsg,lat,lon in ((3413,78,15),(3031,-77,166)):
+            point=subprocess.check_output(['gdaltransform','-s_srs','EPSG:4326','-t_srs',f'EPSG:{epsg}'],
+                                          input=f'{lon} {lat}\n',text=True).split()
+            x,y=map(float,point[:2])
+            polar=tmp/f'polar-{epsg}.tif'
+            subprocess.run(['gdal_translate','-q','-of','GTiff','-a_srs',f'EPSG:{epsg}','-a_ullr',
+                            str(x-33),str(y+33),str(x+33),str(y-33),str(raw),str(polar)],check=True)
+            source=fetch.raster_source(dict(product,downloadURL=str(polar)),lat,default_datum='ellipsoid')
+            assert source['epsg']==epsg and source['datum']=='ellipsoid' and source['spacing_m']==2
+            horizontal,vertical=fetch.crs_parts(source['source_srs'])
+            assert vertical is None and len(horizontal['coordinate_system']['axis'])==3
+            transformed=subprocess.check_output(['gdaltransform','-s_srs',source['source_srs'],'-t_srs','EPSG:4979'],
+                                                input=f'{x} {y} 125.5\n',text=True).split()
+            assert abs(float(transformed[0])-lon)<1e-7 and abs(float(transformed[1])-lat)<1e-7 and float(transformed[2])==125.5
 print('PASS: protected terrain metadata, measured-value/nodata serialization, atomic failure preservation and projected GDAL elevation import')

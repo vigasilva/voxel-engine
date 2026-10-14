@@ -25,3 +25,9 @@ __pycache__/
 # Small public USGS 1 m starter survey with source provenance.
 !/data/earth_detail/usgs-3dep_100_4000_-10500.pdem
 !/data/earth_detail/usgs-3dep_100_4000_-10500.pdem.json
+
+# Small public PGC 2 m polar starter surveys with source provenance.
+!/data/earth_detail/arcticdem_100_7822_1564.pdem
+!/data/earth_detail/arcticdem_100_7822_1564.pdem.json
+!/data/earth_detail/rema_100_-7784_16667.pdem
+!/data/earth_detail/rema_100_-7784_16667.pdem.json

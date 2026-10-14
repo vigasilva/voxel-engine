@@ -11,7 +11,7 @@ The included `data/earth_detail/usgs-3dep_100_4000_-10500.pdem` covers approxima
 ```sh
 # Discover and inspect eligible fine surveys without importing their height cells.
 python3 tools/fetch_terrain.py --lat 40.0095 --lon -104.9985 --query-only
-# Maintain the broad fallback and add fine data where available.
+# Add fine data where available; otherwise fetch the broad fallback.
 python3 tools/fetch_terrain.py --lat 40.0095 --lon -104.9985
 # Query/import fine surveys explicitly; fail if no verified source is available.
 python3 tools/fetch_terrain.py --lat 40.0095 --lon -104.9985 --quality fine
@@ -20,7 +20,25 @@ python3 tools/fetch_terrain.py --lat 40.0095 --lon -104.9985 --refresh
 ./build/terrain_probe data/earth_10min.edem 40 -105
 ```
 
-Runtime F10 first uses the broad GLO-30 path away from the ground. Near the ground in the contiguous US, it queries fine USGS data even when a coarse cache already exists. Completed/no-coverage checks are remembered for the current cell; catalogue results are also cached for seven days on disk. Downloads use COG range reads, GDAL's bounded warp/cache memory and one conversion thread. Sub-meter source resolution reduces cell area rather than enlarging a raster without bound. Failed discovery, unavailable transformation grids or missing classification retain the existing fallback.
+Runtime F10 uses the broad GLO-30 path away from the ground. Within 1 km of the ground, it queries fine USGS data in the contiguous US, ArcticDEM north of 60° N and REMA south of 60° S, even when a coarse cache already exists. Fine crops are prioritized before a broader fallback download. Completed/no-coverage checks are remembered for the current cell; catalogue results are also cached for seven days on disk. Downloads use COG range reads, GDAL's bounded warp/cache memory and one conversion thread. Sub-meter source resolution reduces cell area rather than enlarging a raster without bound. Failed discovery, unavailable transformation grids or missing classification retain the existing fallback.
+
+## Public polar mosaics
+
+The importer queries the official [PGC dynamic STAC API](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/stac-access-static-and-dynamic-api/) and selects the newest public 2 m mosaic collection for each polar region. Current releases are ArcticDEM v4.1 and REMA v2.0. It follows bounded catalogue pagination and uses the elevation COG asset, checking the actual spacing and projection. Hillshades, photographic imagery, restricted collections and strips are not imported. Both positive and empty catalogue results are cached. `--refresh` rechecks collection releases and local coverage.
+
+```sh
+python3 tools/fetch_terrain.py --lat 78.2232 --lon 15.6469 --query-only
+python3 tools/fetch_terrain.py --lat -77.835 --lon 166.675 --quality fine
+./build/terrain_probe data/earth_10min.edem 78.2232 15.6469
+```
+
+Two small measured starter packs are included: Longyearbyen (78.22–78.23° N, 15.64–15.65° E) and the McMurdo area (77.84–77.83° S, 166.67–166.68° E), each with a 20 m halo. They total about 0.63 MiB including provenance. Their 134 × 577 and 137 × 577 height grids retain 2 m nominal source sampling. Both tested crops have complete valid height coverage; this does not establish complete coverage elsewhere. McMurdo's WorldCover classification is unknown and falls back to the engine's procedural biome rules. These are surface models, including ice, snow and objects, not surveyed bedrock or bare-ground models.
+
+[PGC's product documentation](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/) specifies WGS84 ellipsoidal heights, EPSG:3413 for ArcticDEM and EPSG:3031 for REMA. When a TIFF only tags the documented 2D polar projection, the importer promotes that verified WGS84 CRS to 3D before converting heights to EGM2008. An independent no-height-shift raster warp and point-transform check verified approximately −32.37 m and +52.50 m reference shifts in the two crops, agreeing within 12 mm including centimeter output quantization. This checks the conversion, not terrain survey accuracy; vertical and transformation accuracy remain unknown.
+
+The public STAC collections declare CC BY 4.0. ArcticDEM mosaics: Porter et al., 2023, [ArcticDEM v4.1](https://doi.org/10.7910/DVN/3VDC4W). REMA mosaics: Howat et al., 2022, [REMA mosaics v2](https://doi.org/10.7910/DVN/EBW8UC); see also [Howat et al., 2019](https://doi.org/10.5194/tc-13-665-2019). Retrieval dates, collection identities, acquisition ranges, source URLs and citations are retained in each JSON sidecar.
+
+PGC supplies these DEMs, derived from Vantor stereo imagery, with NSF-OPP support. ArcticDEM awards: 1043681, 1559691, 1542736, 1810976, 2129685. REMA also credits the Byrd Polar and Climate Research Center, with awards 1043681, 1542736, 1543501, 1559691, 1810976, 2129685. These acknowledgements and the [PGC acknowledgement policy](https://www.pgc.umn.edu/guides/user-services/acknowledgement-policy/) are recorded in the sidecars. Source imagery is not distributed by this project.
 
 ## Datum conversion and honest quality
 
@@ -43,7 +61,7 @@ python3 tools/fetch_terrain.py --source /path/to/elevation.tif --source-srs 'EPS
   --surface-kind bare-ground --lat 40.01 --lon -105 --output data/earth_detail
 ```
 
-[ArcticDEM](https://www.pgc.umn.edu/data/arcticdem/) and [REMA/PGC product documentation](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/) describe public 2 m surface models, their polar projections, ellipsoidal heights and source limitations. Those products are researched, but automatic PGC discovery/import is still unfinished. Restricted EarthDEM and restricted Alaska acquisitions must not be treated as openly available. Other national bare-ground surveys, stronger hydrology networks/bathymetry, planetary DEMs/shape models and source-boundary water reconciliation remain active work.
+Automatic public ArcticDEM/REMA discovery and local import are implemented as described above. Restricted EarthDEM and restricted Alaska acquisitions are excluded. Other national bare-ground surveys, stronger hydrology networks/bathymetry, planetary DEMs/shape models and source-boundary water reconciliation remain active work.
 
 ## PDEM v3
 

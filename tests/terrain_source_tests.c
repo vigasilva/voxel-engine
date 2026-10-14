@@ -171,6 +171,21 @@ int main(void) {
     unlink(upsampled);
     rmdir(directory);
     rmdir(root);
+    CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    CHECK(planet_detail_source(&p, 78.2232, 15.6469, &info));
+    CHECK(info.provider == TERRAIN_PROVIDER_ARCTICDEM && info.kind == TERRAIN_SURFACE_MODEL &&
+          info.source_datum == HEIGHT_ELLIPSOID && info.datum == HEIGHT_EGM2008 &&
+          info.source_epsg == 3413 && info.flags & TERRAIN_DATUM_CONVERTED &&
+          info.effective_resolution_m >= 2 && info.effective_resolution_m < 2.2 &&
+          isnan(info.vertical_accuracy_m));
+    CHECK(planet_detail_sample(&p, 78.2232, 15.6469, &height, NULL) && fabs(height - 7.767) < .01);
+    CHECK(planet_detail_source(&p, -77.835, 166.675, &info));
+    CHECK(info.provider == TERRAIN_PROVIDER_REMA && info.kind == TERRAIN_SURFACE_MODEL &&
+          info.source_datum == HEIGHT_ELLIPSOID && info.datum == HEIGHT_EGM2008 &&
+          info.source_epsg == 3031 && info.flags & TERRAIN_DATUM_CONVERTED);
+    CHECK(planet_detail_sample(&p, -77.835, 166.675, &height, NULL) && fabs(height - 138) < .01);
+    CHECK(!planet_detail_land_cover(&p, -77.835, 166.675, &cover)); /* unknown classification is not dry data */
+    planet_destroy(&p);
     puts("PASS: variable coverage bins, finest valid source, ground/model priority, truthful resolution, "
          "provenance, nodata/class fallback and validated refresh");
 }
