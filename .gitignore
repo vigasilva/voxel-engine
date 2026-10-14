@@ -1,0 +1,23 @@
+/build*/
+*.vxw
+*.vxw.tmp
+*.log
+
+*.vxp
+*.vxp-shm
+*.vxp-wal
+__pycache__/
+
+# Local restart notes, temporary files, and credentials.
+/RESUME.md
+*.tmp
+.env
+.env.*
+
+# Keep a reproducible starter terrain set; additional streamed cells stay local.
+/data/earth_detail/*
+!/data/earth_detail/400_-1050.pdem
+!/data/earth_detail/400_-1051.pdem
+!/data/earth_detail/399_-1051.pdem
+!/data/earth_detail/-338_1512.pdem
+!/data/earth_detail/-15_-485.pdem
