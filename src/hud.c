@@ -295,7 +295,8 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
         snprintf(line, sizeof(line), "TERRAIN CACHE %zu MESHES / %.1F MIB", s->cached_meshes,
                  s->cached_mesh_bytes / 1048576.0);
         text(h, 34, y + 232, 1, muted, line);
-        snprintf(line, sizeof(line), "LOD COVERAGE / %zu RETAINED PARENTS", s->fallback_meshes);
+        snprintf(line, sizeof(line), "LOD PARENTS %zu / UPLOAD STAGING %.1F MIB", s->fallback_meshes,
+                 s->gpu_staging_bytes / 1048576.0);
         text(h, 34, y + 250, 1, muted, line);
     }
     if (materials) {

@@ -28,6 +28,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [ ] Improve first-view coverage when no parent meshes have loaded yet.
 - [x] Retain hidden mesh buffers through camera turns, remove frame timeout eviction, and expose retained memory in F1.
 - [x] Reuse completed stationary patch selections instead of repeatedly sampling/replanning the quadtree; invalidate on camera, projection, source, edit, or world-shape changes.
+- [x] Store static planet meshes in device-local memory and batch uploads through a reusable staging arena with explicit transfer/read synchronization.
 - [ ] Validate occlusion with the revised rendering/cache lifecycle.
 - [ ] Flatten connected water surfaces and provide gradual riverbeds and shore transitions.
 - [ ] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.

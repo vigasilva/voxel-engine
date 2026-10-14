@@ -85,6 +85,8 @@ struct Renderer {
     Vec3 planet_up;
     float planet_altitude;
     GpuMesh chunks[SCENE_SLOTS], hud;
+    GpuMesh mesh_upload;
+    size_t upload_used, upload_offset[SCENE_SLOTS], upload_bytes[SCENE_SLOTS];
     Scene scene;
     PlanetScene planet_scene;
     bool planet_mode, planet_targeted, planet_space;
@@ -280,11 +282,11 @@ static void destroy_buffer(Renderer *r, GpuMesh *m) {
     }
     *m = (GpuMesh){0};
 }
-static bool create_buffer(Renderer *r, GpuMesh *m, size_t bytes) {
+static bool create_buffer_flags(Renderer *r, GpuMesh *m, size_t bytes, VkMemoryPropertyFlags properties,
+                                VkBufferUsageFlags usage) {
     VkBufferCreateInfo info = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                                .size = bytes,
-                               .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                               .usage = usage,
                                .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
     VK_TRY(vkCreateBuffer(r->device, &info, NULL, &m->buffer));
     VkMemoryRequirements req;
@@ -307,8 +309,7 @@ static bool create_buffer(Renderer *r, GpuMesh *m, size_t bytes) {
         }
     }
     uint32_t type;
-    if (!memory_type(r, req.memoryTypeBits,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &type))
+    if (!memory_type(r, req.memoryTypeBits, properties, &type))
         return false;
     VkMemoryAllocateInfo alloc = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = req.size, .memoryTypeIndex = type};
@@ -316,8 +317,42 @@ static bool create_buffer(Renderer *r, GpuMesh *m, size_t bytes) {
     m->allocated = req.size;
     r->vertex_allocated += req.size;
     VK_TRY(vkBindBufferMemory(r->device, m->buffer, m->memory, 0));
-    VK_TRY(vkMapMemory(r->device, m->memory, 0, bytes, 0, &m->mapped));
+    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+        VK_TRY(vkMapMemory(r->device, m->memory, 0, bytes, 0, &m->mapped));
     m->bytes = bytes;
+    return true;
+}
+static bool create_buffer(Renderer *r, GpuMesh *m, size_t bytes) {
+    return create_buffer_flags(r, m, bytes,
+                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+}
+static bool reserve_upload(Renderer *r, size_t bytes) {
+    if (bytes > SIZE_MAX - r->upload_used)
+        return false;
+    size_t needed = r->upload_used + bytes;
+    if (needed <= r->mesh_upload.bytes)
+        return true;
+    size_t capacity = r->mesh_upload.bytes ? r->mesh_upload.bytes : 65536;
+    while (capacity < needed) {
+        if (capacity > SIZE_MAX / 2) {
+            capacity = needed;
+            break;
+        }
+        capacity *= 2;
+    }
+    GpuMesh replacement = {0};
+    if (!create_buffer_flags(r, &replacement, capacity,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                             VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) {
+        destroy_buffer(r, &replacement);
+        return false;
+    }
+    if (r->upload_used)
+        memcpy(replacement.mapped, r->mesh_upload.mapped, r->upload_used);
+    destroy_buffer(r, &r->mesh_upload);
+    r->mesh_upload = replacement;
     return true;
 }
 static bool create_commands(Renderer *r) {
@@ -968,6 +1003,7 @@ void renderer_destroy(Renderer *r) {
         destroy_buffer(r, &r->hud);
         destroy_buffer(r, &r->globals_buffer);
         destroy_buffer(r, &r->occlusion_boxes);
+        destroy_buffer(r, &r->mesh_upload);
         if (r->occlusion_pool)
             vkDestroyQueryPool(r->device, r->occlusion_pool, NULL);
         if (r->descriptor_pool)
@@ -1014,17 +1050,26 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
     GpuMesh *m = &r->chunks[slot];
     bool replacing = m->count != 0;
     size_t bytes = mesh->count * sizeof(Vertex);
+    r->upload_bytes[slot] = 0;
     if (bytes > m->bytes || bytes < m->bytes / 4 || !bytes) {
         destroy_buffer(r, m);
-        if (bytes && !create_buffer(r, m, bytes))
+        if (bytes &&
+            !create_buffer_flags(r, m, bytes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT))
             return false;
     }
-    if (bytes)
-        memcpy(m->mapped, mesh->vertices, bytes);
+    if (bytes && !reserve_upload(r, bytes))
+        return false;
+    Vertex *v = bytes ? (Vertex *)((char *)r->mesh_upload.mapped + r->upload_used) : NULL;
+    if (bytes) {
+        memcpy(v, mesh->vertices, bytes);
+        r->upload_offset[slot] = r->upload_used;
+        r->upload_bytes[slot] = bytes;
+        r->upload_used += bytes;
+    }
     if (replacing)
         r->geometry_epoch++;
     m->count = mesh->count;
-    Vertex *v = m->mapped;
     m->bounds_min = v3(INFINITY, INFINITY, INFINITY);
     m->bounds_max = v3(-INFINITY, -INFINITY, -INFINITY);
     for (size_t i = 0; i < mesh->count; i++) {
@@ -1126,7 +1171,7 @@ bool renderer_sync_world(Renderer *r, World *w, WorldPosition camera, Vec3 direc
             break;
     }
     r->scene.mesh_bytes = (size_t)(r->vertex_allocated - r->hud.allocated - r->globals_buffer.allocated -
-                                   r->occlusion_boxes.allocated);
+                                   r->occlusion_boxes.allocated - r->mesh_upload.allocated);
     r->scene.pending = 0;
     for (int i = 0; i < SCENE_SLOTS; i++) {
         SceneEntry *e = &r->scene.entries[i];
@@ -1146,6 +1191,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         scene_init(&r->scene);
         planet_scene_init(&r->planet_scene);
         r->planet_mode = true;
+        puts("Planet mesh storage: DEVICE-LOCAL / BATCHED TRANSFERS");
     }
     if (r->last_edit_revision != p->revision || r->last_surface_revision != p->surface_revision)
         r->geometry_epoch++;
@@ -1300,7 +1346,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
              (e->edited && e->built_edit_lod_mm != e->edit_lod_mm));
     }
     r->scene.mesh_bytes = (size_t)(r->vertex_allocated - r->hud.allocated - r->globals_buffer.allocated -
-                                   r->occlusion_boxes.allocated);
+                                   r->occlusion_boxes.allocated - r->mesh_upload.allocated);
     return true;
 }
 static bool camera_equal(WorldPosition a, WorldPosition b) {
@@ -1438,6 +1484,20 @@ bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Ve
     VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                                       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     VK_TRY(vkBeginCommandBuffer(r->command, &begin));
+    bool copied = false;
+    for (int slot = 0; slot < SCENE_SLOTS; slot++)
+        if (r->upload_bytes[slot] && r->chunks[slot].buffer) {
+            VkBufferCopy copy = {.srcOffset = r->upload_offset[slot], .size = r->upload_bytes[slot]};
+            vkCmdCopyBuffer(r->command, r->mesh_upload.buffer, r->chunks[slot].buffer, 1, &copy);
+            copied = true;
+        }
+    if (copied) {
+        VkMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                   .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                   .dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT};
+        vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                             0, 1, &barrier, 0, NULL, 0, NULL);
+    }
     vkCmdResetQueryPool(r->command, r->occlusion_pool, 0, PLANET_PATCH_LIMIT);
     VkClearValue clear[2] = {{.color = {{.48f, .67f, .82f, 1}}}, {.depthStencil = {0, 0}}};
     if (r->planet_mode && r->planet_space) {
@@ -1577,6 +1637,8 @@ bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Ve
                            .signalSemaphoreCount = 1,
                            .pSignalSemaphores = &r->finished[image]};
     VK_TRY(vkQueueSubmit(r->queue, 1, &submit, r->fence));
+    memset(r->upload_bytes, 0, sizeof(r->upload_bytes));
+    r->upload_used = 0;
     /* Present semaphores are indexed by swapchain image. Reacquisition guarantees safe reuse. */
     VkPresentInfoKHR present = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                 .waitSemaphoreCount = 1,
@@ -1676,6 +1738,7 @@ void renderer_resources(const Renderer *r, ResourceStats *stats) {
     stats->gpu_buffer_bytes = (size_t)r->vertex_allocated;
     stats->gpu_depth_bytes = (size_t)r->depth_allocated;
     stats->gpu_texture_bytes = (size_t)r->texture_allocated;
+    stats->gpu_staging_bytes = (size_t)r->mesh_upload.allocated;
     stats->cached_meshes = stats->cached_mesh_bytes = 0;
     stats->fallback_meshes = 0;
     if (r->planet_mode)
