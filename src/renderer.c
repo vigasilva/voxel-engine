@@ -1200,11 +1200,24 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         }
         if (was_visible && !e->visible)
             r->geometry_epoch++;
-        if (!e->visible && r->chunks[i].memory && r->planet_scene.frame - e->last_visible > 120) {
-            destroy_buffer(r, &r->chunks[i]);
-            if (i < PLANET_PATCH_LIMIT)
-                r->planet_scene.patches[i].ready = false;
-        }
+    }
+    /* Cache hidden meshes by memory pressure, not a frame timeout: uncapped
+       rendering used to discard terrain within a fraction of a second. */
+    size_t cached_bytes = 0;
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        if (!r->scene.entries[i].visible)
+            cached_bytes += (size_t)r->chunks[i].allocated;
+    while (cached_bytes > 128u * 1024u * 1024u) {
+        int oldest = -1;
+        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+            if (!r->scene.entries[i].visible && r->chunks[i].memory &&
+                (oldest < 0 || r->scene.entries[i].last_visible < r->scene.entries[oldest].last_visible))
+                oldest = i;
+        if (oldest < 0)
+            break;
+        cached_bytes -= (size_t)r->chunks[oldest].allocated;
+        destroy_buffer(r, &r->chunks[oldest]);
+        r->planet_scene.patches[oldest].ready = false;
     }
     PlanetMeshResult result;
     if (planet_worker_take(r->worker, &result)) {
@@ -1661,6 +1674,13 @@ void renderer_resources(const Renderer *r, ResourceStats *stats) {
     stats->gpu_buffer_bytes = (size_t)r->vertex_allocated;
     stats->gpu_depth_bytes = (size_t)r->depth_allocated;
     stats->gpu_texture_bytes = (size_t)r->texture_allocated;
+    stats->cached_meshes = stats->cached_mesh_bytes = 0;
+    if (r->planet_mode)
+        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+            if (!r->scene.entries[i].visible && r->chunks[i].memory) {
+                stats->cached_meshes++;
+                stats->cached_mesh_bytes += (size_t)r->chunks[i].allocated;
+            }
     VkPhysicalDeviceMemoryProperties memory;
     vkGetPhysicalDeviceMemoryProperties(r->physical, &memory);
     stats->gpu_heap_bytes = 0;

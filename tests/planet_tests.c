@@ -413,6 +413,50 @@ static void test_terrain_seams(void) {
     mesh_destroy(&mesh);
     planet_destroy(&p);
 }
+static void test_terrain_rotation_cache(void) {
+    Planet p;
+    CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    PlanetScene *scene = malloc(sizeof(*scene));
+    CHECK(scene);
+    planet_scene_init(scene);
+    WorldPosition camera;
+    CHECK(planet_set_position(planet_from_geographic(&p, 40, -105, p.a_m * 2), &camera));
+    DVec3 up = planet_up(&p, planet_position_m(camera));
+    Vec3 toward = v3((float)-up.x, (float)-up.y, (float)-up.z),
+         away = v3((float)up.x, (float)up.y, (float)up.z);
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    size_t visible_count = scene->visible;
+    CHECK(visible_count > 20 && visible_count < PLANET_PATCH_LIMIT / 2);
+    bool resident[PLANET_PATCH_LIMIT] = {false};
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
+        PlanetPatch *patch = &scene->patches[i];
+        if (!patch->visible)
+            continue;
+        resident[i] = true;
+        patch->ready = true;
+        patch->reset = false;
+        patch->built_revision = p.revision;
+        patch->built_surface_revision = p.surface_revision;
+        patch->built_river_lod = patch->river_lod;
+        patch->built_terrain_lod = patch->terrain_lod;
+    }
+    for (int frame = 0; frame < 300; frame++) {
+        CHECK(planet_scene_update(scene, &p, camera, away, v3(0, 0, 1), 1.6, p.a_m * 8));
+        CHECK(scene->visible == 0);
+        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+            if (resident[i])
+                CHECK(scene->patches[i].span_m && scene->patches[i].ready && !scene->patches[i].reset);
+    }
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->visible == visible_count && scene->pending == 0);
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        if (resident[i])
+            CHECK(scene->patches[i].visible && scene->patches[i].ready && !scene->patches[i].reset);
+    printf("Rotation cache: %zu patches survived 300 away-facing frames; return requires zero mesh jobs\n",
+           visible_count);
+    free(scene);
+    planet_destroy(&p);
+}
 static void test_height_and_greedy(void) {
     Planet p;
     CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
@@ -880,6 +924,11 @@ int main(int argc, char **argv) {
         test_terrain_seams();
         return 0;
     }
+    if (argc == 2 && !strcmp(argv[1], "--terrain-cache")) {
+        test_terrain_rotation_cache();
+        return 0;
+    }
+    test_terrain_rotation_cache();
     test_terrain_seams();
     test_smooth_edit_surface();
     test_projected_river_lod();

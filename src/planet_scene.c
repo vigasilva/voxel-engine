@@ -85,6 +85,11 @@ static bool request(PlanetScene *s, PlanetPatch patch) {
     e->last_visible = s->frame;
     return true;
 }
+typedef struct {
+    PlanetScene *scene;
+    PlanetPatch patches[PLANET_PATCH_LIMIT];
+    size_t count;
+} PatchPlan;
 static bool visible(DVec3 camera, Vec3 d, Vec3 up, float aspect, double view, DVec3 center, double radius) {
     DVec3 r = pd_sub(center, camera);
     Vec3 f = vnormalize(d), right = vnormalize(vcross(f, up)), u = vcross(right, f);
@@ -99,8 +104,9 @@ static bool visible(DVec3 camera, Vec3 d, Vec3 up, float aspect, double view, DV
            fabs(x) <= depth * horizontal + radius * sqrt(1 + horizontal * horizontal) &&
            fabs(y) <= depth * tangent + radius * sqrt(1 + tangent * tangent);
 }
-static bool visit(PlanetScene *s, const Planet *p, DVec3 camera, Vec3 d, Vec3 up, float aspect, double view,
+static bool visit(PatchPlan *plan, const Planet *p, DVec3 camera, Vec3 d, Vec3 up, float aspect, double view,
                   double refinement, int face, int level, uint32_t x, uint32_t y) {
+    PlanetScene *s = plan->scene;
     double size = 2.0 / (1u << level), u = -1 + (x + .5) * size, v = -1 + (y + .5) * size;
     DVec3 direction = planet_cube_direction(face, u, v), center = planet_surface_point(p, direction, true);
     double span = p->a_m * size, radius = span * 1.5 + .01, distance = pd_length(pd_sub(center, camera));
@@ -125,7 +131,7 @@ static bool visit(PlanetScene *s, const Planet *p, DVec3 camera, Vec3 d, Vec3 up
     if (level < 3 || (level < 21 && distance < span * refinement)) {
         for (uint32_t dy = 0; dy < 2; dy++)
             for (uint32_t dx = 0; dx < 2; dx++)
-                if (!visit(s, p, camera, d, up, aspect, view, refinement, face, level + 1, x * 2 + dx,
+                if (!visit(plan, p, camera, d, up, aspect, view, refinement, face, level + 1, x * 2 + dx,
                            y * 2 + dy))
                     return false;
         return true;
@@ -152,7 +158,10 @@ static bool visit(PlanetScene *s, const Planet *p, DVec3 camera, Vec3 d, Vec3 up
                          .span_m = span,
                          .river_lod = river_lod,
                          .terrain_lod = terrain_lod};
-    return request(s, patch);
+    if (plan->count == PLANET_PATCH_LIMIT)
+        return false;
+    plan->patches[plan->count++] = patch;
+    return true;
 }
 bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3 d, Vec3 up, float aspect,
                          double view) {
@@ -169,14 +178,13 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     s->river_disabled = 2 * planet_river_max_width(p) < s->river_clearance_m * s->river_pixel_factor * 1.5;
     /* Wide windows and unusual views coarsen instead of growing the working set. */
     bool planned = false;
+    PatchPlan plan = {.scene = s};
     double refinement = 1.9;
     for (int attempt = 0; attempt < 5 && !planned; attempt++, refinement *= .75) {
-        s->visible = 0;
-        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
-            s->patches[i].visible = false;
+        plan.count = 0;
         planned = true;
         for (int face = 0; face < 6; face++)
-            if (!visit(s, p, camera, d, up, aspect, view, refinement, face, 0, 0, 0)) {
+            if (!visit(&plan, p, camera, d, up, aspect, view, refinement, face, 0, 0, 0)) {
                 planned = false;
                 break;
             }
@@ -185,6 +193,19 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
         snprintf(p->error, sizeof(p->error), "Planet visible-patch budget exceeded");
         return false;
     }
+    /* Reserve all reusable slots before inserting new patches. A new request
+       must not evict a cached patch that appears later in the traversal. */
+    bool cached[PLANET_PATCH_LIMIT] = {false};
+    for (size_t i = 0; i < plan.count; i++)
+        for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++)
+            if (s->patches[slot].span_m && key_equal(&s->patches[slot], &plan.patches[i])) {
+                cached[i] = true;
+                break;
+            }
+    for (int pass = 0; pass < 2; pass++)
+        for (size_t i = 0; i < plan.count; i++)
+            if (cached[i] == (pass == 0) && !request(s, plan.patches[i]))
+                return false;
     PlanetBox nearby;
     double c[3] = {camera.x, camera.y, camera.z};
     for (int i = 0; i < 3; i++) {
@@ -223,11 +244,6 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
              ((e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) && e->built_revision != p->revision) ||
              (e->edited && e->built_edit_lod_mm != e->edit_lod_mm)))
             s->pending++;
-        if (!e->visible && e->span_m && s->frame - e->last_visible > 120) {
-            e->span_m = 0;
-            e->ready = false;
-            e->reset = true;
-        }
     }
     return true;
 }

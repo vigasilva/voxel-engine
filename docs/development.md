@@ -8,7 +8,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | --- | --- | --- |
 | Mesh-backed terrain and 1 mm voxels | Unmodified terrain is an implicit height field rendered as meshes. Modified volumes are stored in sparse voxel trees and their boundaries are rendered as meshes. | Natural excavation still has cuboid boundaries; normal smoothing is not a density-volume mesher. Improve the visible edit surface while preserving material values. |
 | Greedy meshing | Merges terrain rectangles within an error tolerance and equal-material edit faces. Shared terrain edges and skirts retain matching vertices. Terrain sampling/merging now use quantized screen-space error. | Further localize fine clipping around edits and control total rendering cost. |
-| Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. | Keep existing coverage until replacement meshes are ready, and retain useful meshes across quick turns. Current slot replacement and frame-based eviction can cause gaps. |
+| Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes now remain cached by slot/memory pressure, with reusable slots protected before new requests. | Keep coarse parent coverage until different-detail replacement meshes are ready; slot replacement can still cause gaps. |
 | Occlusion culling | Vulkan bounding-box queries skip hidden patches when the camera and contributing geometry are unchanged. | Moving the camera invalidates results conservatively. Validate interactions with retained replacement coverage and expose its cost. |
 | Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover water masks, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
 | Procedural terrain | Deterministic small-scale noise supplements measured heights; fallback areas receive larger noise octaves. | This is not yet a biome-aware landscape generator or a model of mountain erosion. |
@@ -25,6 +25,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Reduce unmodified terrain triangle cost using projected detail and measured error (default ground fixture: about 2.3 million to 51,000 triangles).
 - [ ] Further localize fine terrain around edits and validate total cost with dense excavation.
 - [ ] Keep coarse coverage until finer replacements finish; cache useful meshes through camera turns.
+- [x] Retain hidden mesh buffers through camera turns, remove frame timeout eviction, and expose retained memory in F1.
 - [ ] Validate occlusion with the revised rendering/cache lifecycle.
 - [ ] Flatten connected water surfaces and provide gradual riverbeds and shore transitions.
 - [ ] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.

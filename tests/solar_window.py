@@ -15,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('executable', type=Path)
     parser.add_argument('--screenshots', type=Path)
+    parser.add_argument('--cache-only', action='store_true')
     args = parser.parse_args()
     executable = args.executable.resolve()
     root = Path(__file__).resolve().parents[1]
@@ -68,7 +69,36 @@ def main():
             assert 'Vulkan validation:' not in output, output
             return output
 
+        def cache_check():
+            window = start('--altitude', '1000000', '--freecam', '--render-stats')
+            xdo('key', 'F7', 'F12')
+            def stats():
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+)', logpath.read_text())
+                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), cache=int(m[5]), cache_mib=float(m[6])) for m in matches]
+            def loaded():
+                values = stats()
+                return values[-1] if values and values[-1]['visible'] > 0 and values[-1]['pending'] == 0 else None
+            initial = wait_for(loaded, 'complete overview terrain', timeout=25)
+            xdo('key', 'F2')
+            def away():
+                values = stats()
+                return values[-1] if values and values[-1]['frame'] >= initial['frame'] + 300 and values[-1]['cache'] > 20 else None
+            retained = wait_for(away, '300 away-facing frames with retained GPU meshes', timeout=25)
+            offset = logpath.stat().st_size
+            xdo('key', 'F7')
+            def returned():
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+)', logpath.read_text()[offset:])
+                return matches[0] if matches else None
+            first = wait_for(returned, 'first returning-view statistics')
+            assert int(first[2]) == initial['visible'] and int(first[3]) == 0, first
+            assert pixels(window) and max(pixels(window)) > 50, 'Cached Earth did not render'
+            stop()
+            print(f"PASS: {retained['cache']} GPU meshes retained ({retained['cache_mib']:.2f} MiB); return to {initial['visible']} patches required zero mesh jobs")
+
         try:
+            if args.cache_only:
+                cache_check()
+                return
             altitude = subprocess.check_output([str(executable.parent/'occlusion_seed'), str(root/'data/earth_10min.edem'), str(Path(tmp)/'earth.vxp')], text=True, timeout=20).strip()
             window = start('--lat', '0', '--lon', '0', '--altitude', altitude, '--freecam')
             time.sleep(.8)

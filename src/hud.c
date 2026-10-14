@@ -258,7 +258,7 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
     char line[160];
     if (performance) {
         float y = 270;
-        rect(h, 18, y, 438, 234, panel);
+        rect(h, 18, y, 438, 252, panel);
         text(h, 34, y + 14, 1, accent, "COMPUTER RESOURCES / F1 TOGGLE");
 
         snprintf(line, sizeof(line), "CPU %.1f%% (100 = ONE CORE) / UPDATE %.2F MS", s->cpu_percent,
@@ -292,6 +292,9 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
         else
             snprintf(line, sizeof(line), "O OCCLUSION / HIDDEN %zu / GPU LOAD N/A", s->occluded_patches);
         text(h, 34, y + 214, 1, muted, line);
+        snprintf(line, sizeof(line), "TERRAIN CACHE %zu MESHES / %.1F MIB", s->cached_meshes,
+                 s->cached_mesh_bytes / 1048576.0);
+        text(h, 34, y + 232, 1, muted, line);
     }
     if (materials) {
         bool compact = height < 750;

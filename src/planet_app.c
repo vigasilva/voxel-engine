@@ -123,6 +123,8 @@ int planet_app_main(int argc, char **argv) {
     uint32_t frames_limit = 0;
     bool validation = false, vsync = false, space = false, orbit = false, smoke = false, freecam = false;
     bool online_terrain = true, occlusion = true, solar_paused = false;
+    bool render_stats = false;
+    double render_stats_elapsed = 0;
     SolarSystem solar;
     solar_init(&solar);
     SolarCamera solar_camera = {.target = 4};
@@ -140,6 +142,8 @@ int planet_app_main(int argc, char **argv) {
             solar_camera.enabled = true;
         else if (!strcmp(arg, "--no-occlusion"))
             occlusion = false;
+        else if (!strcmp(arg, "--render-stats"))
+            render_stats = true;
         else if (!strcmp(arg, "--terrain-offline"))
             online_terrain = false;
         else if (!strcmp(arg, "--vsync"))
@@ -201,7 +205,7 @@ int planet_app_main(int argc, char **argv) {
                  "Options: --lat DEG --lon DEG --altitude M --orbit-view --orbit --freecam\n"
                  "--earth-data FILE --planet-save FILE --mass KG --radius M --view-distance M\n"
                  "--validation --vsync --frames N --planet-smoke-test --terrain-offline\n"
-                 "--solar-view --solar-body 0..8 --time-scale 0..31557600 --no-occlusion\n"
+                 "--solar-view --solar-body 0..8 --time-scale 0..31557600 --no-occlusion --render-stats\n"
                  "--lab selects the previous laboratory (its options remain available).\n"
                  "WASD walk, Space jump, Shift run; F6 fixed-orientation flight, F7 aim at Earth, F8 "
                  "space/ground view\n"
@@ -711,6 +715,20 @@ int planet_app_main(int argc, char **argv) {
             break;
         }
         frame++;
+        render_stats_elapsed += elapsed;
+        if (render_stats && render_stats_elapsed >= .5) {
+            const PlanetScene *scene = renderer_planet_scene(renderer);
+            printf("Render stats: frame=%u mode=%s visible=%zu pending=%zu triangles=%zu cache=%zu "
+                   "cache_mib=%.2f\n",
+                   frame,
+                   solar_camera.enabled     ? "solar"
+                   : resources.texture_only ? "texture"
+                                            : "terrain",
+                   scene->visible, scene->pending, renderer_vertex_count(renderer) / 3,
+                   resources.cached_meshes, resources.cached_mesh_bytes / 1048576.0);
+            fflush(stdout);
+            render_stats_elapsed = 0;
+        }
     }
     printf("Solar: J2000 + %.6f days; proper clock deficit %.9f s; time scale %.0f X\n", solar.time_s / 86400,
            observer_coordinate - observer_proper, time_scale);
