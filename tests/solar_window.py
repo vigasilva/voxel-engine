@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     executable = args.executable.resolve()
     root = Path(__file__).resolve().parents[1]
-    with open('/tmp/voxel-engine-gpu-tests.lock', 'w') as lock, tempfile.TemporaryDirectory(prefix='voxel-solar-test-') as tmp:
+    with open(Path(tempfile.gettempdir()) / 'voxel-gpu-test.lock', 'a') as lock, tempfile.TemporaryDirectory(prefix='voxel-solar-test-') as tmp:
         fcntl.flock(lock, fcntl.LOCK_EX)
         read_fd, write_fd = os.pipe()
         xvfb = subprocess.Popen(['Xvfb', '-displayfd', str(write_fd), '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'], pass_fds=(write_fd,), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
