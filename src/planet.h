@@ -73,6 +73,7 @@ typedef struct {
     bool ready;
     int edit_lod_mm, built_edit_lod_mm;
     int river_lod, built_river_lod;
+    int terrain_lod, built_terrain_lod;
 } PlanetPatch;
 typedef struct {
     PlanetPatch patches[PLANET_PATCH_LIMIT];

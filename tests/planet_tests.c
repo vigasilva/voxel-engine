@@ -364,44 +364,52 @@ static void test_terrain_seams(void) {
     CHECK(planet_set_position(patch.center_m, &origin));
     patch.origin = origin.cell;
     Mesh mesh = {0};
-    CHECK(planet_mesh_patch(&mesh, &p, &patch));
-    TerrainEdge *edges = malloc(mesh.count * sizeof(*edges));
-    CHECK(edges);
-    size_t count = 0;
-    const Material *stone = material_get(MAT_STONE);
-    Vec3 skirt = v3(stone->color[0], stone->color[1], stone->color[2]);
-    for (size_t i = 0; i < mesh.count; i += 3) {
-        bool surface = memcmp(&mesh.vertices[i].color, &skirt, sizeof(skirt)) != 0;
-        for (int j = 0; j < 3; j++) {
-            Vec3 a = mesh.vertices[i + j].position, b = mesh.vertices[i + (j + 1) % 3].position;
-            if (compare_position(a, b) > 0) {
-                Vec3 swap = a;
-                a = b;
-                b = swap;
+    size_t detailed_count = 0;
+    for (int pass = 0; pass < 3; pass++) {
+        patch.terrain_lod = pass ? pass * 5 + 1 : 0;
+        CHECK(planet_mesh_patch(&mesh, &p, &patch));
+        TerrainEdge *edges = malloc(mesh.count * sizeof(*edges));
+        CHECK(edges);
+        size_t count = 0;
+        const Material *stone = material_get(MAT_STONE);
+        Vec3 skirt = v3(stone->color[0], stone->color[1], stone->color[2]);
+        for (size_t i = 0; i < mesh.count; i += 3) {
+            bool surface = memcmp(&mesh.vertices[i].color, &skirt, sizeof(skirt)) != 0;
+            for (int j = 0; j < 3; j++) {
+                Vec3 a = mesh.vertices[i + j].position, b = mesh.vertices[i + (j + 1) % 3].position;
+                if (compare_position(a, b) > 0) {
+                    Vec3 swap = a;
+                    a = b;
+                    b = swap;
+                }
+                edges[count++] = (TerrainEdge){a, b, surface};
             }
-            edges[count++] = (TerrainEdge){a, b, surface};
         }
+        qsort(edges, count, sizeof(*edges), compare_edge);
+        size_t unpaired = 0, paired = 0;
+        for (size_t i = 0; i < count;) {
+            size_t end = i + 1;
+            bool surface = edges[i].surface;
+            while (end < count && !compare_edge(&edges[i], &edges[end])) {
+                surface |= edges[end].surface;
+                end++;
+            }
+            if (surface) {
+                paired += end - i == 2;
+                unpaired += end - i != 2;
+            }
+            i = end;
+        }
+        printf("Terrain seams: %zu paired surface/skirt edges, %zu unpaired, %zu vertices\n", paired,
+               unpaired, mesh.count);
+        CHECK(paired > 0 && unpaired == 0);
+        CHECK(mesh.count < mesh.unit_faces * 6);
+        if (!pass)
+            detailed_count = mesh.count;
+        else
+            CHECK(mesh.count < detailed_count / 2);
+        free(edges);
     }
-    qsort(edges, count, sizeof(*edges), compare_edge);
-    size_t unpaired = 0, paired = 0;
-    for (size_t i = 0; i < count;) {
-        size_t end = i + 1;
-        bool surface = edges[i].surface;
-        while (end < count && !compare_edge(&edges[i], &edges[end])) {
-            surface |= edges[end].surface;
-            end++;
-        }
-        if (surface) {
-            paired += end - i == 2;
-            unpaired += end - i != 2;
-        }
-        i = end;
-    }
-    printf("Terrain seams: %zu paired surface/skirt edges, %zu unpaired, %zu vertices\n", paired, unpaired,
-           mesh.count);
-    CHECK(paired > 100 && unpaired == 0);
-    CHECK(mesh.count < mesh.unit_faces * 6);
-    free(edges);
     mesh_destroy(&mesh);
     planet_destroy(&p);
 }
@@ -607,6 +615,7 @@ static void test_physics_and_lod(void) {
                       isfinite(m.vertices[j].position.z));
         }
     size_t ground_patches = scene->visible;
+    CHECK(vertices < 300000); /* Default ground fixture must not return to millions of terrain vertices. */
     double mesh_ms = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
     WorldPosition space;
     CHECK(planet_set_position(planet_from_geographic(&p, 40, -105, p.a_m * 2), &space));

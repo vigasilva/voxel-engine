@@ -80,6 +80,7 @@ static bool request(PlanetScene *s, PlanetPatch patch) {
     e->radius_m = patch.radius_m;
     e->edit_lod_mm = patch.edit_lod_mm;
     e->river_lod = patch.river_lod;
+    e->terrain_lod = patch.terrain_lod;
     e->visible = true;
     e->last_visible = s->frame;
     return true;
@@ -137,6 +138,10 @@ static bool visit(PlanetScene *s, const Planet *p, DVec3 camera, Vec3 d, Vec3 up
                     : meters_per_pixel <= 1
                         ? 0
                         : (int)fmin(PLANET_RIVER_DISABLED_LOD, ceil(log2(meters_per_pixel)));
+    /* Geometry only needs to reproduce relief visible at this distance.
+       Quantized errors avoid rebuilding for every small camera movement. */
+    double pixel_error = fmax(.00025, fmax(1, distance - span * .25) * s->river_pixel_factor);
+    int terrain_lod = 1 + (int)fmin(23, floor(log2(pixel_error / .00025)));
     PlanetPatch patch = {.face = face,
                          .level = level,
                          .x = x,
@@ -145,7 +150,8 @@ static bool visit(PlanetScene *s, const Planet *p, DVec3 camera, Vec3 d, Vec3 up
                          .center_m = center,
                          .radius_m = radius,
                          .span_m = span,
-                         .river_lod = river_lod};
+                         .river_lod = river_lod,
+                         .terrain_lod = terrain_lod};
     return request(s, patch);
 }
 bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3 d, Vec3 up, float aspect,
@@ -212,7 +218,7 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
         PlanetPatch *e = &s->patches[i];
         if (e->visible &&
-            (!e->ready || e->built_river_lod != e->river_lod ||
+            (!e->ready || e->built_river_lod != e->river_lod || e->built_terrain_lod != e->terrain_lod ||
              e->built_surface_revision != p->surface_revision ||
              ((e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) && e->built_revision != p->revision) ||
              (e->edited && e->built_edit_lod_mm != e->edit_lod_mm)))

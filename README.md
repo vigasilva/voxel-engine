@@ -90,6 +90,8 @@ Surface geometry follows a six-face spherical quadtree. Greedy meshing joins adj
 
 Greedy terrain rectangles retain neighboring boundary vertices and matching skirt endpoints to close cracks between differently sized rectangles. Rectangles with extra boundary points use the minimum polygon triangulation; an uninterrupted flat rectangle still uses two triangles. This adds geometry where needed to join surfaces while preserving mesh reduction and stored voxel values.
 
+Terrain sampling and merging now use quantized projected error based on distance, field of view, and drawable height. Relief smaller than a screen pixel can merge instead of forcing the close-up grid across the whole view. Shader material detail remains independent of that geometry. Patches containing edit volumes currently retain finer geometry for accurate clipping. The default ground regression generates about 51,000 terrain triangles across 527 patches, compared with about 2.3 million before projected detail; this is a geometry test, not an FPS guarantee.
+
 ![Satellite-mapped inland water above sea level](docs/earth-inland-water.png)
 
 Signed 64-bit 125 mm anchors plus local offsets retain millimeter precision. Planet queries currently have a deliberate **±2,000,000 km working range per axis**, fitting Earth comfortably; the laboratory's theoretical integer-address range is much larger. Stored edits use sparse 2 m chunks, a bounded resident cache, and disk-backed SQLite. The planet's physical size does not set RAM consumption; local edit complexity and visible geometry do. Detailed architecture, budgets, approximations, and save format are in [docs/planet.md](docs/planet.md).

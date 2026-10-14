@@ -1012,6 +1012,7 @@ bool renderer_start_mesher(Renderer *r, const char *data, const char *save, cons
 }
 static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
     GpuMesh *m = &r->chunks[slot];
+    bool replacing = m->count != 0;
     size_t bytes = mesh->count * sizeof(Vertex);
     if (bytes > m->bytes || bytes < m->bytes / 4 || !bytes) {
         destroy_buffer(r, m);
@@ -1020,7 +1021,7 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
     }
     if (bytes)
         memcpy(m->mapped, mesh->vertices, bytes);
-    if (m->count)
+    if (replacing)
         r->geometry_epoch++;
     m->count = mesh->count;
     Vertex *v = m->mapped;
@@ -1050,7 +1051,7 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
     return true;
 }
 static bool same_patch(const PlanetPatch *a, const PlanetPatch *b) {
-    if (a->river_lod != b->river_lod)
+    if (a->river_lod != b->river_lod || a->terrain_lod != b->terrain_lod)
         return false;
     if (a->edited != b->edited)
         return false;
@@ -1225,6 +1226,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
             patch->built_surface_revision = result.surface_revision;
             patch->built_edit_lod_mm = result.patch.edit_lod_mm;
             patch->built_river_lod = result.patch.river_lod;
+            patch->built_terrain_lod = result.patch.terrain_lod;
         }
         mesh_destroy(&result.mesh);
     }
@@ -1235,6 +1237,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
             PlanetPatch *e = &r->planet_scene.patches[i];
             if (!e->visible || (e->ready && e->built_river_lod == e->river_lod &&
+                                e->built_terrain_lod == e->terrain_lod &&
                                 e->built_surface_revision == p->surface_revision &&
                                 (!(e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) ||
                                  e->built_revision == p->revision) &&
@@ -1267,6 +1270,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         e->built_surface_revision = p->surface_revision;
         e->built_edit_lod_mm = e->edit_lod_mm;
         e->built_river_lod = e->river_lod;
+        e->built_terrain_lod = e->terrain_lod;
         if ((double)(SDL_GetPerformanceCounter() - start) / frequency > .004)
             break;
     }
@@ -1275,7 +1279,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         PlanetPatch *e = &r->planet_scene.patches[i];
         r->planet_scene.pending +=
             e->visible &&
-            (!e->ready || e->built_river_lod != e->river_lod ||
+            (!e->ready || e->built_river_lod != e->river_lod || e->built_terrain_lod != e->terrain_lod ||
              e->built_surface_revision != p->surface_revision ||
              ((e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) && e->built_revision != p->revision) ||
              (e->edited && e->built_edit_lod_mm != e->edit_lod_mm));

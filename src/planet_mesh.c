@@ -452,10 +452,17 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     }
     PlanetGeo patch_geo = planet_geographic(p, patch->center_m);
     bool native = planet_detail_sample(p, patch_geo.latitude_deg, patch_geo.longitude_deg, NULL, NULL);
-    const int grid = patch->span_m < 12               ? 128
-                     : patch->span_m < 80             ? 64
-                     : native && patch->span_m < 4000 ? 64
-                                                      : PLANET_SURFACE_GRID;
+    int grid = patch->span_m < 12               ? 128
+               : patch->span_m < 80             ? 64
+               : native && patch->span_m < 4000 ? 64
+                                                : PLANET_SURFACE_GRID;
+    double error = edits.count ? .00025 : fmin(2000, fmax(.00025, patch->span_m * .00008));
+    if (patch->terrain_lod > 0 && !edits.count) {
+        error = fmin(2000, fmax(error, ldexp(.00025, patch->terrain_lod - 1)));
+        double spacing = fmax(.05, error * 8);
+        while (grid > 8 && patch->span_m / (grid / 2) <= spacing)
+            grid /= 2;
+    }
     DVec3 vertices[129][129], normals[129][129];
     uint16_t materials[128][128];
     uint16_t owners[128][128];
@@ -463,7 +470,6 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     size_t rectangle_count = 0;
     bool used[128][128] = {{false}};
     double size = 2.0 / (1u << patch->level), u0 = -1 + patch->x * size, v0 = -1 + patch->y * size;
-    double error = edits.count ? .00025 : fmin(2000, fmax(.00025, patch->span_m * .00008));
     for (int y = 0; y <= grid; y++)
         for (int x = 0; x <= grid; x++) {
             DVec3 direction = planet_cube_direction(patch->face, u0 + size * x / grid, v0 + size * y / grid);
