@@ -55,9 +55,23 @@ int main(void) {
     CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0);
     terrain_stream_stop(&s);
     CHECK(!s.process);
+    s.cooldown = 0;
+    location = (PlanetGeo){40.055, -104.045, 1402};
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0 && s.requested_fine);
+    CHECK(poll(&s, &p, location));
+    TerrainSourceInfo source_info;
+    CHECK(planet_detail_source(&p, location.latitude_deg, location.longitude_deg, &source_info));
+    CHECK(source_info.provider == TERRAIN_PROVIDER_USGS_3DEP && source_info.effective_resolution_m < 2);
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process);
+    location.latitude_deg = 40.065;
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && s.process > 0 && s.requested_fine);
+    CHECK(!poll(&s, &p, location));
+    CHECK(!terrain_stream_step(&s, &p, location, 3) && !s.process); /* no source: remember the checked cell */
     planet_destroy(&p);
     char file[512];
     snprintf(file, sizeof(file), "%s/earth_detail/300_300.pdem", tmp);
+    unlink(file);
+    snprintf(file, sizeof(file), "%s/earth_detail/fine.pdem", tmp);
     unlink(file);
     snprintf(file, sizeof(file), "%s/earth_detail", tmp);
     rmdir(file);

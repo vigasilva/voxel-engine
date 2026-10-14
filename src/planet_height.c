@@ -9,7 +9,10 @@ static void source_geometry(const Planet *p, double lat, double lon, double *spa
         return;
     }
     if (planet_detail_resolution(p, lat, lon, &dx, &dy)) {
-        *spacing = fmax(dx, dy) * EARTH_A_METERS / p->a_m;
+        TerrainSourceInfo source;
+        *spacing =
+            (planet_detail_source(p, lat, lon, &source) ? source.effective_resolution_m : fmax(dx, dy)) *
+            EARTH_A_METERS / p->a_m;
         planet_detail_slope(p, lat, lon, slope);
         return;
     }

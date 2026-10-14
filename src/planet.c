@@ -195,24 +195,12 @@ static double global_elevation(const Planet *p, double lat, double lon) {
 }
 double planet_measured_elevation(const Planet *p, double lat, double lon) {
     double base = global_elevation(p, lat, lon);
-    double detail;
-    bool water;
-    if (planet_detail_sample(p, lat, lon, &detail, &water) && isfinite(detail)) {
-        bool preserve_bathymetry = false;
-        if (base < 0 && detail <= .01) {
-            PlanetWaterProfile profile;
-            preserve_bathymetry = water && planet_detail_water(p, lat, lon, &profile) && profile.marine;
-            /* Unclassified zero-height sea pixels do not establish dry land. */
-            preserve_bathymetry |= fabs(detail) <= .01 && !planet_detail_water_mask(p, lat, lon, NULL);
-        }
-        if (!preserve_bathymetry)
-            return detail;
-    }
     if (!isfinite(lat) || !isfinite(lon))
         return base;
     lon = fmod(lon, 360);
     if (lon < 0)
         lon += 360;
+    double fallback = base;
     for (size_t i = 0; i < p->region_count; i++) {
         const EarthData *d = &p->regions[i];
         double x = (lon - d->lon0) / d->lon_step, y = (lat - d->lat0) / d->lat_step;
@@ -227,9 +215,23 @@ double planet_measured_elevation(const Planet *p, double lat, double lon) {
         double edge = fmin(fmin(x, d->columns - 1 - x), fmin(y, d->rows - 1 - y));
         double weight = fmin(1, edge / 24);
         weight = weight * weight * (3 - 2 * weight);
-        return base * (1 - weight) + (a * (1 - ty) + b * ty) * weight * p->a_m / EARTH_A_METERS;
+        fallback = base * (1 - weight) + (a * (1 - ty) + b * ty) * weight * p->a_m / EARTH_A_METERS;
+        break;
     }
-    return base;
+    double detail;
+    bool water;
+    if (planet_detail_sample(p, lat, lon, &detail, &water) && isfinite(detail)) {
+        bool preserve_bathymetry = false;
+        if (base < 0 && detail <= .01) {
+            PlanetWaterProfile profile;
+            preserve_bathymetry = water && planet_detail_water(p, lat, lon, &profile) && profile.marine;
+            /* Unclassified zero-height sea pixels do not establish dry land. */
+            preserve_bathymetry |= fabs(detail) <= .01 && !planet_detail_water_mask(p, lat, lon, NULL);
+        }
+        if (!preserve_bathymetry)
+            return planet_detail_elevation(p, lat, lon, fallback, &detail) ? detail : fallback;
+    }
+    return fallback;
 }
 DVec3 planet_from_geographic(const Planet *p, double latitude, double longitude, double h) {
     double lat = latitude * PI / 180, lon = longitude * PI / 180, s = sin(lat), c = cos(lat),

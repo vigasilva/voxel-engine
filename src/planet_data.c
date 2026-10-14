@@ -20,20 +20,28 @@ typedef struct {
     unsigned char *data;
     size_t bytes;
     uint32_t nx, ny, wx, wy, version;
+    size_t data_offset;
+    TerrainSourceInfo source;
     double lon0, lat0, dx, dy;
-    int lat_key, lon_key;
+
     Hydrology hydrology;
     bool hydrology_attempted;
 } DetailMap;
 typedef struct {
     float lon0, lat0, lon1, lat1, width;
 } River;
+typedef struct {
+    int lat, lon;
+    uint32_t map, next;
+} MapLink;
 struct PlanetTerrainData {
     DetailMap *maps;
     size_t count, capacity, bytes;
     char directory[1024];
     uint32_t *buckets;
     size_t bucket_count;
+    MapLink *links;
+    size_t link_count;
     River *rivers;
     uint32_t river_count, *offsets, *ids, river_checksum;
     double river_max_width;
@@ -104,16 +112,78 @@ static bool load_map(DetailMap *m, const char *path) {
     m->lat0 = get64(data + 32);
     m->dx = get64(data + 40);
     m->dy = get64(data + 48);
-    uint64_t expected = 64 + (uint64_t)m->nx * m->ny * 4 + (uint64_t)m->wx * m->wy;
-    bool ok = !memcmp(data, "PDEM", 4) && (m->version == 1 || m->version == 2) && get32(data + 60) == 0 &&
-              expected == bytes && m->nx >= 2 && m->ny >= 2 && m->wx >= 2 && m->wy >= 2 && m->nx <= 20000 &&
-              m->ny <= 20000 && isfinite(m->lat0) && isfinite(m->lon0) && isfinite(m->dx) &&
-              isfinite(m->dy) && m->lat0 >= -90 && m->lon0 >= -180 && m->dx > 0 && m->dy > 0 &&
-              m->dx <= .001 && m->dy <= .001 && m->lat0 + (m->ny - 1) * m->dy <= 90 &&
+    m->data_offset = m->version == 3 ? get32(data + 60) : 64;
+    uint64_t expected = m->data_offset + (uint64_t)m->nx * m->ny * 4 + (uint64_t)m->wx * m->wy;
+    bool ok = !memcmp(data, "PDEM", 4) && (m->version == 1 || m->version == 2 || m->version == 3) &&
+              (m->version == 3 ? m->data_offset == TERRAIN_SOURCE_HEADER_BYTES : get32(data + 60) == 0) &&
+              expected == bytes && m->data_offset <= bytes && m->nx >= 2 && m->ny >= 2 && m->wx >= 2 &&
+              m->wy >= 2 && m->nx <= 20000 && m->ny <= 20000 && isfinite(m->lat0) && isfinite(m->lon0) &&
+              isfinite(m->dx) && isfinite(m->dy) && m->lat0 >= -90 && m->lon0 >= -180 && m->dx > 0 &&
+              m->dy > 0 && m->dx <= .25 && m->dy <= .25 && m->lat0 + (m->ny - 1) * m->dy <= 90 &&
               m->lon0 + (m->nx - 1) * m->dx <= 180 &&
               crc32(0, data + 64, (uInt)(bytes - 64)) == get32(data + 56);
+    m->source = (TerrainSourceInfo){.provider = TERRAIN_PROVIDER_COPERNICUS,
+                                    .kind = TERRAIN_SURFACE_MODEL,
+                                    .source_datum = HEIGHT_EGM2008,
+                                    .datum = HEIGHT_EGM2008,
+                                    .body_id = 399,
+                                    .source_spacing_m = NAN,
+                                    .vertical_accuracy_m = NAN,
+                                    .transform_accuracy_m = NAN,
+                                    .legacy = true};
+    if (ok && m->version == 3) {
+        TerrainSourceInfo *info = &m->source;
+        uint32_t crc = (uint32_t)crc32(0, data, 56);
+        crc = (uint32_t)crc32(crc, data + 60, 164);
+        crc = (uint32_t)crc32(crc, data + 228, 28);
+        info->provider = get32(data + 64);
+        info->kind = get32(data + 68);
+        info->source_datum = get32(data + 72);
+        info->datum = get32(data + 76);
+        info->source_spacing_m = get64(data + 80);
+        info->finest_spacing_m = get64(data + 240);
+        info->vertical_accuracy_m = get64(data + 88);
+        info->publication_day = get32(data + 96);
+        info->flags = get32(data + 100);
+        info->body_id = get32(data + 220);
+        info->source_epsg = get32(data + 228);
+        info->transform_accuracy_m = get64(data + 232);
+        info->legacy = false;
+        memcpy(info->label, data + 104, TERRAIN_SOURCE_LABEL_BYTES);
+        for (int i = 0; i < 4; i++)
+            info->coverage[i] = get64(data + 184 + i * 8);
+        ok = crc == get32(data + 224) && info->provider <= TERRAIN_PROVIDER_NASADEM &&
+             info->kind <= TERRAIN_TOPOBATHY && info->source_datum <= HEIGHT_EGM1996 &&
+             info->datum == HEIGHT_EGM2008 && info->body_id == 399 && isfinite(info->source_spacing_m) &&
+             info->source_spacing_m > 0 && info->source_spacing_m <= 100000 &&
+             isfinite(info->finest_spacing_m) && info->finest_spacing_m > 0 &&
+             info->finest_spacing_m <= info->source_spacing_m &&
+             (isnan(info->vertical_accuracy_m) ||
+              (isfinite(info->vertical_accuracy_m) && info->vertical_accuracy_m >= 0)) &&
+             (isnan(info->transform_accuracy_m) ||
+              (isfinite(info->transform_accuracy_m) && info->transform_accuracy_m >= 0)) &&
+             !(info->flags & ~(TERRAIN_DATUM_CONVERTED | TERRAIN_ACCURACY_ESTIMATED)) &&
+             memchr(info->label, 0, sizeof(info->label)) != NULL;
+        for (int i = 0; i < 4; i++)
+            ok &= isfinite(info->coverage[i]);
+        ok &= info->coverage[0] < info->coverage[2] && info->coverage[1] < info->coverage[3] &&
+              info->coverage[0] >= m->lon0 - m->dx * .5 - 1e-9 &&
+              info->coverage[1] >= m->lat0 - m->dy * .5 - 1e-9 &&
+              info->coverage[2] <= m->lon0 + (m->nx - .5) * m->dx + 1e-9 &&
+              info->coverage[3] <= m->lat0 + (m->ny - .5) * m->dy + 1e-9;
+        for (int i = 248; i < 256; i++)
+            ok &= data[i] == 0;
+        for (size_t i = 0; ok && i < sizeof(info->label) && info->label[i]; i++)
+            ok &= (unsigned char)info->label[i] >= 32 && (unsigned char)info->label[i] <= 126;
+    } else {
+        snprintf(m->source.label, sizeof(m->source.label), "Legacy terrain pack");
+        m->source.coverage[0] = m->lon0 - m->dx * .5;
+        m->source.coverage[1] = m->lat0 - m->dy * .5;
+        m->source.coverage[2] = m->lon0 + (m->nx - .5) * m->dx;
+        m->source.coverage[3] = m->lat0 + (m->ny - .5) * m->dy;
+    }
     if (ok) {
-        const unsigned char *cover = data + 64 + (size_t)m->nx * m->ny * 4;
+        const unsigned char *cover = data + m->data_offset + (size_t)m->nx * m->ny * 4;
         for (size_t i = 0; i < (size_t)m->wx * m->wy; i++) {
             unsigned c = cover[i];
             if (m->version == 1 ? c > 1
@@ -141,38 +211,47 @@ static size_t tile_hash(int lat, int lon, size_t mask) {
     return ((uint32_t)lat * 73856093u ^ (uint32_t)lon * 19349663u) & mask;
 }
 static void map_index(PlanetTerrainData *t) {
-    size_t capacity = 16;
-    while (capacity < t->count * 2)
-        capacity *= 2;
-    uint32_t *buckets = calloc(capacity, sizeof(*buckets));
     free(t->buckets);
+    free(t->links);
     t->buckets = NULL;
-    t->bucket_count = 0;
-    if (!buckets)
-        return;
+    t->links = NULL;
+    t->bucket_count = t->link_count = 0;
+    size_t count = 0;
     for (size_t i = 0; i < t->count; i++) {
         DetailMap *m = &t->maps[i];
-        m->lat_key = (int)floor((m->lat0 + (m->ny - 1) * m->dy * .5) * 10);
-        m->lon_key = (int)floor((m->lon0 + (m->nx - 1) * m->dx * .5) * 10);
-        size_t slot = tile_hash(m->lat_key, m->lon_key, capacity - 1);
-        while (buckets[slot])
-            slot = (slot + 1) & (capacity - 1);
-        buckets[slot] = (uint32_t)i + 1;
+        int x0 = (int)floor(m->lon0 * 10), x1 = (int)floor((m->lon0 + (m->nx - 1) * m->dx) * 10),
+            y0 = (int)floor(m->lat0 * 10), y1 = (int)floor((m->lat0 + (m->ny - 1) * m->dy) * 10);
+        size_t n = (size_t)(x1 - x0 + 1) * (y1 - y0 + 1);
+        if (n > UINT32_MAX - count)
+            return;
+        count += n;
+    }
+    size_t capacity = 16;
+    while (capacity < count * 2)
+        capacity *= 2;
+    uint32_t *buckets = calloc(capacity, sizeof(*buckets));
+    MapLink *links = count ? malloc(count * sizeof(*links)) : NULL;
+    if (!buckets || (count && !links)) {
+        free(buckets);
+        free(links);
+        return;
+    }
+    size_t at = 0;
+    for (size_t i = 0; i < t->count; i++) {
+        DetailMap *m = &t->maps[i];
+        int x0 = (int)floor(m->lon0 * 10), x1 = (int)floor((m->lon0 + (m->nx - 1) * m->dx) * 10),
+            y0 = (int)floor(m->lat0 * 10), y1 = (int)floor((m->lat0 + (m->ny - 1) * m->dy) * 10);
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++) {
+                size_t slot = tile_hash(y, x, capacity - 1);
+                links[at] = (MapLink){y, x, (uint32_t)i, buckets[slot]};
+                buckets[slot] = (uint32_t)++at;
+            }
     }
     t->buckets = buckets;
+    t->links = links;
     t->bucket_count = capacity;
-}
-static const DetailMap *lookup(const PlanetTerrainData *t, int lat, int lon) {
-    if (!t->buckets)
-        return NULL;
-    size_t slot = tile_hash(lat, lon, t->bucket_count - 1);
-    while (t->buckets[slot]) {
-        const DetailMap *m = &t->maps[t->buckets[slot] - 1];
-        if (m->lat_key == lat && m->lon_key == lon)
-            return m;
-        slot = (slot + 1) & (t->bucket_count - 1);
-    }
-    return NULL;
+    t->link_count = count;
 }
 size_t planet_detail_refresh(Planet *p) {
     PlanetTerrainData *t = p->terrain;
@@ -243,42 +322,161 @@ size_t planet_detail_refresh(Planet *p) {
     }
     return added;
 }
-static DetailMap *detail_at(const Planet *p, double lat, double lon, double *x, double *y) {
-    if (!p->terrain || !isfinite(lat) || !isfinite(lon) || fabs(lat) > 90)
-        return NULL;
-    lon = remainder(lon, 360);
-    int lat_key = (int)floor(lat * 10), lon_key = (int)floor(lon * 10);
-    static const int offsets[9][2] = {{0, 0},   {-1, 0}, {1, 0},  {0, -1}, {0, 1},
-                                      {-1, -1}, {-1, 1}, {1, -1}, {1, 1}};
-    size_t tries = p->terrain->buckets ? 9 : p->terrain->count;
-    for (size_t i = 0; i < tries; i++) {
-        const DetailMap *m = p->terrain->buckets
-                                 ? lookup(p->terrain, lat_key + offsets[i][0], lon_key + offsets[i][1])
-                                 : &p->terrain->maps[i];
-        if (!m)
-            continue;
-        *x = (lon - m->lon0) / m->dx;
-        *y = (lat - m->lat0) / m->dy;
-        if (*x >= 0 && *y >= 0 && *x < m->nx - 1 && *y < m->ny - 1)
-            return (DetailMap *)m; /* This Planet owns its lazily prepared cache. */
-    }
-    return NULL;
-}
 static double detail_height(const DetailMap *m, double x, double y) {
     x = fmax(0, fmin(m->nx - 1.000001, x));
     y = fmax(0, fmin(m->ny - 1.000001, y));
     int ix = (int)x, iy = (int)y;
     double tx = x - ix, ty = y - iy, values[4];
     for (int corner = 0; corner < 4; corner++) {
-        int32_t cm = (int32_t)get32(m->data + 64 + 4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
+        int32_t cm = (int32_t)get32(m->data + m->data_offset +
+                                    4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
         if (cm == INT32_MIN || cm < -1200000 || cm > 1000000)
             return NAN;
         values[corner] = cm * .01;
     }
     return (values[0] * (1 - tx) + values[1] * tx) * (1 - ty) + (values[2] * (1 - tx) + values[3] * tx) * ty;
 }
+static double map_resolution(const DetailMap *m, double lat) {
+    double resolution = fmax(m->dy, m->dx * fabs(cos(lat * PI / 180))) * 111319.49079327358;
+    return isfinite(m->source.source_spacing_m) ? fmax(resolution, m->source.source_spacing_m) : resolution;
+}
+static bool map_preferred(const DetailMap *candidate, const DetailMap *best, double lat) {
+    if (!best)
+        return true;
+    double a = map_resolution(candidate, lat), b = map_resolution(best, lat);
+    if (fabs(a - b) > fmin(a, b) * .05)
+        return a < b;
+    if (candidate->source.kind != best->source.kind &&
+        (candidate->source.kind == TERRAIN_BARE_GROUND || best->source.kind == TERRAIN_BARE_GROUND))
+        return candidate->source.kind == TERRAIN_BARE_GROUND;
+    double ca = candidate->source.flags & TERRAIN_ACCURACY_ESTIMATED ? NAN
+                                                                     : candidate->source.vertical_accuracy_m,
+           cb = best->source.flags & TERRAIN_ACCURACY_ESTIMATED ? NAN : best->source.vertical_accuracy_m;
+    if (isfinite(ca) != isfinite(cb))
+        return isfinite(ca);
+    if (isfinite(ca) && ca != cb)
+        return ca < cb;
+    if (candidate->source.publication_day != best->source.publication_day)
+        return candidate->source.publication_day > best->source.publication_day;
+    return strcmp(candidate->name, best->name) < 0;
+}
+static DetailMap *detail_select_except(const Planet *p, double lat, double lon, double *x, double *y,
+                                       int coverage, const DetailMap *excluded) {
+    if (!p->terrain || !isfinite(lat) || !isfinite(lon) || fabs(lat) > 90)
+        return NULL;
+    lon = remainder(lon, 360);
+    PlanetTerrainData *t = p->terrain;
+    int lat_key = (int)floor(lat * 10), lon_key = (int)floor(lon * 10);
+    uint32_t link = t->buckets ? t->buckets[tile_hash(lat_key, lon_key, t->bucket_count - 1)] : 0;
+    DetailMap *best = NULL;
+    size_t linear = 0;
+    while (t->buckets ? link != 0 : linear < t->count) {
+        DetailMap *m;
+        if (t->buckets) {
+            MapLink entry = t->links[link - 1];
+            link = entry.next;
+            if (entry.lat != lat_key || entry.lon != lon_key)
+                continue;
+            m = &t->maps[entry.map];
+        } else
+            m = &t->maps[linear++];
+        if (m == excluded)
+            continue;
+        double gx = (lon - m->lon0) / m->dx, gy = (lat - m->lat0) / m->dy;
+        if (gx < 0 || gy < 0 || gx >= m->nx - 1 || gy >= m->ny - 1 || !isfinite(detail_height(m, gx, gy)))
+            continue;
+        if (coverage) {
+            size_t ix = (size_t)fmax(0, fmin(m->wx - 1, floor((gx + .5) * m->wx / m->nx))),
+                   iy = (size_t)fmax(0, fmin(m->wy - 1, floor((gy + .5) * m->wy / m->ny)));
+            if ((m->version != 1 || coverage == 2) &&
+                !m->data[m->data_offset + (size_t)m->nx * m->ny * 4 + iy * m->wx + ix])
+                continue;
+        }
+        if (map_preferred(m, best, lat)) {
+            best = m;
+            *x = gx;
+            *y = gy;
+        }
+    }
+    return best;
+}
+static DetailMap *detail_select(const Planet *p, double lat, double lon, double *x, double *y, int coverage) {
+    return detail_select_except(p, lat, lon, x, y, coverage, NULL);
+}
+static double map_blend_weight(const DetailMap *m, double lat, double lon) {
+    if (m->version != 3)
+        return 1;
+    lon = remainder(lon, 360);
+    double weight = 1;
+    const double *core = m->source.coverage;
+    double bounds[4] = {m->lon0, m->lat0, m->lon0 + (m->nx - 1) * m->dx, m->lat0 + (m->ny - 1) * m->dy};
+    if (lon < core[0])
+        weight = fmin(weight, (lon - bounds[0]) / fmax(1e-15, core[0] - bounds[0]));
+    if (lat < core[1])
+        weight = fmin(weight, (lat - bounds[1]) / fmax(1e-15, core[1] - bounds[1]));
+    if (lon > core[2])
+        weight = fmin(weight, (bounds[2] - lon) / fmax(1e-15, bounds[2] - core[2]));
+    if (lat > core[3])
+        weight = fmin(weight, (bounds[3] - lat) / fmax(1e-15, bounds[3] - core[3]));
+    weight = fmax(0, fmin(1, weight));
+    return weight * weight * (3 - 2 * weight);
+}
+bool planet_detail_elevation(const Planet *p, double lat, double lon, double fallback, double *height) {
+    double x, y;
+    DetailMap *m = detail_select(p, lat, lon, &x, &y, 0);
+    if (!m)
+        return false;
+    double measured = detail_height(m, x, y) * p->a_m / EARTH_A_METERS,
+           weight = map_blend_weight(m, lat, lon);
+    if (weight < 1) {
+        double cx, cy;
+        DetailMap *coarse = detail_select_except(p, lat, lon, &cx, &cy, 0, m);
+        if (coarse)
+            fallback = detail_height(coarse, cx, cy) * p->a_m / EARTH_A_METERS;
+        measured = measured * weight + fallback * (1 - weight);
+    }
+    if (height)
+        *height = measured;
+    return true;
+}
+static DetailMap *detail_at(const Planet *p, double lat, double lon, double *x, double *y) {
+    return detail_select(p, lat, lon, x, y, false);
+}
+const char *terrain_provider_name(TerrainProvider provider) {
+    static const char *names[] = {"unknown", "Copernicus GLO-30", "USGS 3DEP", "ArcticDEM",
+                                  "REMA",    "local raster",      "NASADEM"};
+    return provider >= 0 && provider <= TERRAIN_PROVIDER_NASADEM ? names[provider] : names[0];
+}
+const char *height_datum_name(HeightDatum datum) {
+    static const char *names[] = {"unknown", "EGM2008", "NAVD88", "ellipsoid", "EGM1996"};
+    return datum >= 0 && datum <= HEIGHT_EGM1996 ? names[datum] : names[0];
+}
+bool planet_detail_source(const Planet *p, double lat, double lon, TerrainSourceInfo *source) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    if (source) {
+        *source = m->source;
+        double scale = p->a_m / EARTH_A_METERS * 111319.49079327358;
+        source->grid_spacing_x_m = m->dx * scale * fabs(cos(lat * PI / 180));
+        source->grid_spacing_y_m = m->dy * scale;
+        source->blend_weight = map_blend_weight(m, lat, lon);
+        source->effective_resolution_m = map_resolution(m, lat) * p->a_m / EARTH_A_METERS;
+        if (source->blend_weight < 1) {
+            double cx, cy;
+            DetailMap *coarse = detail_select_except(p, lat, lon, &cx, &cy, 0, m);
+            if (coarse)
+                source->effective_resolution_m =
+                    source->effective_resolution_m * source->blend_weight +
+                    map_resolution(coarse, lat) * p->a_m / EARTH_A_METERS * (1 - source->blend_weight);
+        }
+        snprintf(source->tile_name, sizeof(source->tile_name), "%s", m->name);
+    }
+    return true;
+}
 static const uint8_t *water_mask(const DetailMap *m) {
-    return m->data + 64 + (size_t)m->nx * m->ny * 4;
+    return m->data + m->data_offset + (size_t)m->nx * m->ny * 4;
 }
 static void water_coordinates(const DetailMap *m, double *x, double *y) {
     *x = (*x + .5) * m->wx / m->nx - .5;
@@ -331,9 +529,12 @@ const char *planet_land_cover_name(LandCover cover) {
 }
 bool planet_detail_land_cover(const Planet *p, double lat, double lon, LandCover *cover) {
     double x, y;
-    DetailMap *m = detail_at(p, lat, lon, &x, &y);
-    if (!m)
+    DetailMap *m = detail_select(p, lat, lon, &x, &y, 2);
+    if (!m) {
+        if (cover)
+            *cover = COVER_UNKNOWN;
         return false;
+    }
     water_coordinates(m, &x, &y);
     unsigned c = water_mask(m)[water_index(m, x, y)];
     if (m->version == 1)
@@ -344,12 +545,12 @@ bool planet_detail_land_cover(const Planet *p, double lat, double lon, LandCover
 }
 bool planet_detail_water_mask(const Planet *p, double lat, double lon, bool *water) {
     double x, y;
-    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    DetailMap *m = detail_select(p, lat, lon, &x, &y, true);
     if (!m)
         return false;
     water_coordinates(m, &x, &y);
     unsigned c = water_mask(m)[water_index(m, x, y)];
-    if (m->version == 2 && !c)
+    if (m->version >= 2 && !c)
         return false;
     if (water)
         *water = c == (m->version == 1 ? 1 : COVER_WATER);
@@ -363,7 +564,8 @@ bool planet_detail_slope(const Planet *p, double lat, double lon, double *slope)
     int ix = (int)x, iy = (int)y;
     double tx = x - ix, ty = y - iy, values[4];
     for (int corner = 0; corner < 4; corner++) {
-        int32_t cm = (int32_t)get32(m->data + 64 + 4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
+        int32_t cm = (int32_t)get32(m->data + m->data_offset +
+                                    4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
         if (cm == INT32_MIN || cm < -1200000 || cm > 1000000)
             return false;
         values[corner] = cm * .01;
@@ -408,7 +610,7 @@ static bool prepare_hydrology(PlanetTerrainData *t, DetailMap *m) {
                dy = m->dy * m->ny / m->wy * 111319.49079327358;
         uint8_t *mask = NULL;
         const uint8_t *water = water_mask(m);
-        if (m->version == 2) {
+        if (m->version >= 2) {
             mask = malloc(count);
             if (!mask) {
                 free(elevation);
@@ -438,12 +640,12 @@ static bool prepare_hydrology(PlanetTerrainData *t, DetailMap *m) {
 }
 bool planet_detail_water(const Planet *p, double lat, double lon, PlanetWaterProfile *profile) {
     double x, y;
-    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    DetailMap *m = detail_select(p, lat, lon, &x, &y, true);
     if (!m)
         return false;
     double native = detail_height(m, x, y);
     water_coordinates(m, &x, &y);
-    if (m->version == 2 && !water_mask(m)[water_index(m, x, y)])
+    if (m->version >= 2 && !water_mask(m)[water_index(m, x, y)])
         return false; /* Unclassified data is not proof of dry land. */
     bool wet = water_mask(m)[water_index(m, x, y)] == (m->version == 1 ? 1 : COVER_WATER);
     *profile = (PlanetWaterProfile){.wet = wet, .level_m = NAN, .shore_m = -1e6};
@@ -642,6 +844,7 @@ void planet_terrain_close(Planet *p) {
     for (size_t i = 0; i < p->terrain->count; i++)
         unmap(&p->terrain->maps[i]);
     free(p->terrain->buckets);
+    free(p->terrain->links);
     free(p->terrain->maps);
     free(p->terrain->rivers);
     free(p->terrain->offsets);
@@ -650,9 +853,10 @@ void planet_terrain_close(Planet *p) {
     p->terrain = NULL;
 }
 size_t planet_terrain_bytes(const Planet *p) {
-    return p->terrain ? p->terrain->bytes + sizeof(*p->terrain) + p->terrain->capacity * sizeof(DetailMap) +
-                            p->terrain->bucket_count * sizeof(uint32_t)
-                      : 0;
+    return p->terrain
+               ? p->terrain->bytes + sizeof(*p->terrain) + p->terrain->capacity * sizeof(DetailMap) +
+                     p->terrain->bucket_count * sizeof(uint32_t) + p->terrain->link_count * sizeof(MapLink)
+               : 0;
 }
 size_t planet_detail_count(const Planet *p) {
     return p->terrain ? p->terrain->count : 0;

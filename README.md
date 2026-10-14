@@ -122,6 +122,8 @@ Planet checks additionally cover 32,768 collected regions, a 589,824-vertex exac
 
 See [planetary architecture](docs/planet.md), [Earth data provenance](data/README.md), and the [original laboratory documentation](docs/laboratory.md). The old `.vxw` laboratory saves and new `.vxp` planet saves are separate formats.
 
+The [survey importer and source inspector](docs/terrain-sources.md) now add public USGS 1 m/OPR bare-ground data where available. A small 1 m Colorado crop is included; larger/coarser terrain remains the fallback. The engine selects valid overlapping sources, keeps unknown accuracy explicit, and converts incoming height references to EGM2008. F10 requests finer surveys near the ground in the contiguous US.
+
 ## Mesh terrain and generated distant textures
 
 Voxel matter and compressed edits remain authoritative; rendering uses cached surface meshes, following the mesh-backed voxel-terrain architecture requested. Unmodified terrain is a continuous height surface. Very close patches sample up to 128 × 128 cells, with interpolated normals and procedural material detail down to 4 mm where screen resolution permits. Natural edit surfaces share smoothed normals; manufactured materials keep hard edges. Mesh smoothing preserves voxel positions and collision geometry. [Local refinement around edits](docs/terrain-edit-meshing.md) keeps the surrounding terrain at its normal LOD: the complete 1 mm and 1 m excavation fixtures now use about 55,000–63,000 triangles, including edited surfaces. This does not implement Space Engineers' full density-volume mesher: excavation boundaries still come from the stored cuboids, and large sphere strokes retain their documented adaptive voxel boundary.

@@ -1,0 +1,107 @@
+{
+  "attribution": "USGS 3DEP / public domain; ESA WorldCover 2021 v200 / CC BY 4.0",
+  "body_id": 399,
+  "bounds": [
+    -105.0,
+    40.0,
+    -104.99,
+    40.01
+  ],
+  "coverage_kind": "raster validity; bounding boxes are discovery hints",
+  "datum": "EGM2008",
+  "finest_spacing_m": 1.0,
+  "flags": 1,
+  "label": "USGS Original Project Resolution CO_DRCOG_2020_",
+  "provider": "usgs-3dep",
+  "provider_documentation": "https://www.usgs.gov/3d-elevation-program/about-3dep-products-services",
+  "publication_day": 20211222,
+  "retrieved_utc": "2026-10-14T17:28:00.833518+00:00",
+  "source_datum": "NAVD88",
+  "source_epsg": 6342,
+  "source_spacing_m": 1.0,
+  "sources": [
+    {
+      "product": {
+        "bestFitIndex": 0.0,
+        "body": "This is the Original Product Resolution (OPR) Digital Elevation Model (DEM) as provided to the USGS. This DEM is delivered in the original resolution, with the original spatial reference. These data may be used as the source of updates to the seamless layers of the 3D Elevation Program, which serves as the elevation layer of the National Map. These data can be used by scientists and resource managers for global change research, hydrologic modeling, resource monitoring, mapping and visualization, and many other applications.",
+        "boundingBox": {
+          "maxX": -104.98828449599415,
+          "maxY": 40.002187263908695,
+          "minX": -105.00585775204625,
+          "minY": 39.98867210498621
+        },
+        "dataset": "Original Product Resolution (OPR) Digital Elevation Model (DEM)",
+        "datasets": [],
+        "dateCreated": "2021-12-24T00:17:26.148-07:00",
+        "downloadLazURL": null,
+        "downloadURL": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/TIFF/USGS_OPR_CO_DRCOG_2020_B20_w0499n4426.tif",
+        "downloadURLRaster": null,
+        "extent": "Varies",
+        "format": "GeoTIFF",
+        "lastUpdated": "2021-12-24T01:48:47.392-07:00",
+        "metaUrl": "https://www.sciencebase.gov/catalog/item/61c57406d34e2ca389dba9d1",
+        "modificationInfo": "2021-12-24",
+        "moreInfo": "This is the Original Product Resolution (OPR) Digital Elevation Model (DEM) as provided to the USGS. This DEM is delivered in the original resolution, with the original spatial reference. These data may be used as the source of updates to the seamless layers of the 3D Elevation Program, which serves as the elevation layer of the National Map. These data can be used by scientists and resource managers for global change research, hydrologic modeling, resource monitoring, mapping and visualization, and many other applications.",
+        "previewGraphicURL": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/browse/USGS_OPR_CO_DRCOG_2020_B20_w0499n4426.jpg",
+        "processingUrl": "processingUrl",
+        "publicationDate": "2021-12-22",
+        "sizeInBytes": 6292082,
+        "sourceId": "61c57406d34e2ca389dba9d1",
+        "sourceName": "ScienceBase",
+        "sourceOriginId": null,
+        "sourceOriginName": "gda",
+        "title": "USGS Original Project Resolution CO_DRCOG_2020_B20 w0499n4426",
+        "urls": {
+          "TIFF": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/TIFF/USGS_OPR_CO_DRCOG_2020_B20_w0499n4426.tif"
+        },
+        "vendorMetaUrl": "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/metadata/CO_DRCOG_2020_B20/CO_DRCOG_2_2020"
+      },
+      "source_crs": "COMPOUNDCRS[\"NAD83(2011) / UTM zone 13N + NAVD88 height\",\n    PROJCRS[\"NAD83(2011) / UTM zone 13N\",\n        BASEGEOGCRS[\"NAD83(2011)\",\n            DATUM[\"NAD83 (National Spatial Reference System 2011)\",\n                ELLIPSOID[\"GRS 1980\",6378137,298.257222101,\n                    LENGTHUNIT[\"metre\",1]],\n                ANCHOREPOCH[2010]],\n            PRIMEM[\"Greenwich\",0,\n                ANGLEUNIT[\"degree\",0.0174532925199433]],\n            ID[\"EPSG\",6318]],\n        CONVERSION[\"UTM zone 13N\",\n            METHOD[\"Transverse Mercator\",\n                ID[\"EPSG\",9807]],\n            PARAMETER[\"Latitude of natural origin\",0,\n                ANGLEUNIT[\"degree\",0.0174532925199433],\n                ID[\"EPSG\",8801]],\n            PARAMETER[\"Longitude of natural origin\",-105,\n                ANGLEUNIT[\"degree\",0.0174532925199433],\n                ID[\"EPSG\",8802]],\n            PARAMETER[\"Scale factor at natural origin\",0.9996,\n                SCALEUNIT[\"unity\",1],\n                ID[\"EPSG\",8805]],\n            PARAMETER[\"False easting\",500000,\n                LENGTHUNIT[\"metre\",1],\n                ID[\"EPSG\",8806]],\n            PARAMETER[\"False northing\",0,\n                LENGTHUNIT[\"metre\",1],\n                ID[\"EPSG\",8807]]],\n        CS[Cartesian,2],\n            AXIS[\"(E)\",east,\n                ORDER[1],\n                LENGTHUNIT[\"metre\",1]],\n            AXIS[\"(N)\",north,\n                ORDER[2],\n                LENGTHUNIT[\"metre\",1]],\n        USAGE[\n            SCOPE[\"Engineering survey, topographic mapping.\"],\n            AREA[\"United States (USA) - between 108\u00b0W and 102\u00b0W - Colorado; Montana; Nebraska; New Mexico; North Dakota; Oklahoma; South Dakota; Texas; Wyoming.\"],\n            BBOX[28.98,-108,49.01,-102]],\n        ID[\"EPSG\",6342]],\n    VERTCRS[\"NAVD88 height\",\n        VDATUM[\"North American Vertical Datum 1988\"],\n        CS[vertical,1],\n            AXIS[\"gravity-related height (H)\",up,\n                LENGTHUNIT[\"metre\",1]],\n        USAGE[\n            SCOPE[\"Geodesy, engineering survey, topographic mapping.\"],\n            AREA[\"Mexico - onshore. United States (USA) - onshore - United States (USA) - Alaska, conterminous (contiguous) lower 48 states (CONUS).\"],\n            BBOX[14.51,172.42,71.4,-66.91]],\n        ID[\"EPSG\",5703]]]",
+      "source_spacing_m": 1.0
+    },
+    {
+      "product": {
+        "bestFitIndex": 0.0,
+        "body": "This is the Original Product Resolution (OPR) Digital Elevation Model (DEM) as provided to the USGS. This DEM is delivered in the original resolution, with the original spatial reference. These data may be used as the source of updates to the seamless layers of the 3D Elevation Program, which serves as the elevation layer of the National Map. These data can be used by scientists and resource managers for global change research, hydrologic modeling, resource monitoring, mapping and visualization, and many other applications.",
+        "boundingBox": {
+          "maxX": -104.98828218539558,
+          "maxY": 40.0157019473394,
+          "minX": -105.00585890734558,
+          "minY": 40.002186819817666
+        },
+        "dataset": "Original Product Resolution (OPR) Digital Elevation Model (DEM)",
+        "datasets": [],
+        "dateCreated": "2021-12-24T00:16:46.996-07:00",
+        "downloadLazURL": null,
+        "downloadURL": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/TIFF/USGS_OPR_CO_DRCOG_2020_B20_w0499n4428.tif",
+        "downloadURLRaster": null,
+        "extent": "Varies",
+        "format": "GeoTIFF",
+        "lastUpdated": "2021-12-24T01:46:14.306-07:00",
+        "metaUrl": "https://www.sciencebase.gov/catalog/item/61c573ded34e2ca389dba771",
+        "modificationInfo": "2021-12-24",
+        "moreInfo": "This is the Original Product Resolution (OPR) Digital Elevation Model (DEM) as provided to the USGS. This DEM is delivered in the original resolution, with the original spatial reference. These data may be used as the source of updates to the seamless layers of the 3D Elevation Program, which serves as the elevation layer of the National Map. These data can be used by scientists and resource managers for global change research, hydrologic modeling, resource monitoring, mapping and visualization, and many other applications.",
+        "previewGraphicURL": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/browse/USGS_OPR_CO_DRCOG_2020_B20_w0499n4428.jpg",
+        "processingUrl": "processingUrl",
+        "publicationDate": "2021-12-22",
+        "sizeInBytes": 6646132,
+        "sourceId": "61c573ded34e2ca389dba771",
+        "sourceName": "ScienceBase",
+        "sourceOriginId": null,
+        "sourceOriginName": "gda",
+        "title": "USGS Original Project Resolution CO_DRCOG_2020_B20 w0499n4428",
+        "urls": {
+          "TIFF": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/OPR/Projects/CO_DRCOG_2020_B20/CO_DRCOG_2_2020/TIFF/USGS_OPR_CO_DRCOG_2020_B20_w0499n4428.tif"
+        },
+        "vendorMetaUrl": "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/metadata/CO_DRCOG_2020_B20/CO_DRCOG_2_2020"
+      },
+      "source_crs": "COMPOUNDCRS[\"NAD83(2011) / UTM zone 13N + NAVD88 height\",\n    PROJCRS[\"NAD83(2011) / UTM zone 13N\",\n        BASEGEOGCRS[\"NAD83(2011)\",\n            DATUM[\"NAD83 (National Spatial Reference System 2011)\",\n                ELLIPSOID[\"GRS 1980\",6378137,298.257222101,\n                    LENGTHUNIT[\"metre\",1]],\n                ANCHOREPOCH[2010]],\n            PRIMEM[\"Greenwich\",0,\n                ANGLEUNIT[\"degree\",0.0174532925199433]],\n            ID[\"EPSG\",6318]],\n        CONVERSION[\"UTM zone 13N\",\n            METHOD[\"Transverse Mercator\",\n                ID[\"EPSG\",9807]],\n            PARAMETER[\"Latitude of natural origin\",0,\n                ANGLEUNIT[\"degree\",0.0174532925199433],\n                ID[\"EPSG\",8801]],\n            PARAMETER[\"Longitude of natural origin\",-105,\n                ANGLEUNIT[\"degree\",0.0174532925199433],\n                ID[\"EPSG\",8802]],\n            PARAMETER[\"Scale factor at natural origin\",0.9996,\n                SCALEUNIT[\"unity\",1],\n                ID[\"EPSG\",8805]],\n            PARAMETER[\"False easting\",500000,\n                LENGTHUNIT[\"metre\",1],\n                ID[\"EPSG\",8806]],\n            PARAMETER[\"False northing\",0,\n                LENGTHUNIT[\"metre\",1],\n                ID[\"EPSG\",8807]]],\n        CS[Cartesian,2],\n            AXIS[\"(E)\",east,\n                ORDER[1],\n                LENGTHUNIT[\"metre\",1]],\n            AXIS[\"(N)\",north,\n                ORDER[2],\n                LENGTHUNIT[\"metre\",1]],\n        USAGE[\n            SCOPE[\"Engineering survey, topographic mapping.\"],\n            AREA[\"United States (USA) - between 108\u00b0W and 102\u00b0W - Colorado; Montana; Nebraska; New Mexico; North Dakota; Oklahoma; South Dakota; Texas; Wyoming.\"],\n            BBOX[28.98,-108,49.01,-102]],\n        ID[\"EPSG\",6342]],\n    VERTCRS[\"NAVD88 height\",\n        VDATUM[\"North American Vertical Datum 1988\"],\n        CS[vertical,1],\n            AXIS[\"gravity-related height (H)\",up,\n                LENGTHUNIT[\"metre\",1]],\n        USAGE[\n            SCOPE[\"Geodesy, engineering survey, topographic mapping.\"],\n            AREA[\"Mexico - onshore. United States (USA) - onshore - United States (USA) - Alaska, conterminous (contiguous) lower 48 states (CONUS).\"],\n            BBOX[14.51,172.42,71.4,-66.91]],\n        ID[\"EPSG\",5703]]]",
+      "source_spacing_m": 1.0
+    }
+  ],
+  "surface": "bare-ground",
+  "target_crs": "EPSG:4326+3855",
+  "transform_accuracy_m": null,
+  "valid_fraction": 1.0,
+  "vertical_accuracy_m": null
+}

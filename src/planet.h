@@ -4,6 +4,7 @@
 #include "mesh.h"
 #include "landcover.h"
 #include "landscape.h"
+#include "terrain_source.h"
 #define EARTH_MASS_KG 5.9722e24
 #define EARTH_A_METERS 6378137.0
 #define EARTH_B_METERS 6356752.314245
@@ -168,6 +169,8 @@ const char *planet_detail_directory(const Planet *planet);
 const char *planet_land_cover_name(LandCover cover);
 bool planet_detail_land_cover(const Planet *planet, double lat, double lon, LandCover *cover);
 bool planet_detail_water_mask(const Planet *planet, double lat, double lon, bool *water);
+bool planet_detail_elevation(const Planet *planet, double lat, double lon, double fallback, double *height);
+bool planet_detail_source(const Planet *planet, double lat, double lon, TerrainSourceInfo *source);
 bool planet_detail_slope(const Planet *planet, double lat, double lon, double *slope);
 bool planet_detail_resolution(const Planet *planet, double lat, double lon, double *pixel_x_m,
                               double *pixel_y_m);

@@ -21,3 +21,7 @@ __pycache__/
 !/data/earth_detail/399_-1051.pdem
 !/data/earth_detail/-338_1512.pdem
 !/data/earth_detail/-15_-485.pdem
+
+# Small public USGS 1 m starter survey with source provenance.
+!/data/earth_detail/usgs-3dep_100_4000_-10500.pdem
+!/data/earth_detail/usgs-3dep_100_4000_-10500.pdem.json

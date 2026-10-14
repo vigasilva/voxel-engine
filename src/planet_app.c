@@ -298,7 +298,7 @@ int planet_app_main(int argc, char **argv) {
            PLANET_CACHE_LIMIT);
     printf("Terrain: %zu native 15-arcsecond regional maps, procedural local relief, greedy mesh LOD\n",
            p.region_count);
-    printf("Hydrology: %zu global river segments, %zu local 30 m/10 m packs; F10 online terrain %s\n",
+    printf("Hydrology: %zu global river segments, %zu local terrain/land-cover packs; F10 online terrain %s\n",
            planet_river_count(&p), planet_detail_count(&p), terrain_stream.enabled ? "ON" : "OFF");
     puts("Planet allocation limits: UNLIMITED edit regions, tree nodes, fragments, mesh vertices and GPU "
          "buffers");

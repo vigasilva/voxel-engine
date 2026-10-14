@@ -10,7 +10,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Greedy meshing | Merges terrain rectangles within an error tolerance and equal-material edit faces. Shared terrain edges and skirts retain matching vertices. Terrain sampling/merging now use quantized screen-space error. | Local refinement now replaces the patch-wide edit penalty; a density-volume mesher and broader survey fixtures remain. |
 | Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes remain cached by slot/memory pressure. Loaded coarse parents now own their coverage until replacement regions finish, with child promotion after completion. | Cold views without loaded parents still stream progressively; bootstrap coverage remains unfinished. |
 | Occlusion culling | Vulkan bounding-box queries skip hidden patches when the camera and contributing geometry are unchanged. | Moving the camera invalidates results conservatively. Validate interactions with retained replacement coverage and expose its cost. |
-| Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover land-cover/water classes, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
+| Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 and USGS fine surveys, WorldCover classes, and Natural Earth river centerlines. Valid overlap selection and protected provenance metadata are implemented. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
 | Procedural terrain | Shared biome/layer/climate rules and source-resolution-aware ridged/micro detail supplement measured heights; a reproducible tool exports synthetic or actual Earth samples. | Biome-aware generation and an export tool are implemented; climate/geology are estimates, with no hydraulic erosion model. |
 | Distant textures | Bakes engine heights, biome appearance and inland-water classification; coarse patches also cache engine colours independently from greedy geometry. No photographic Earth imagery. | Biome appearance now distinguishes canopy, soil, sand, snow and water. Global climate/geology remain procedural estimates; the overview atlas only rebakes at build time. |
 | Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
@@ -41,7 +41,8 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Add common geological/volatile families, all 118 elemental placement materials, and searchable editor selection.
 - [ ] Add temperature/pressure physical state queries and transition foundations.
 - [ ] Improve the mesh appearance of natural voxel excavations and verify saved voxel values remain intact.
-- [ ] Research and integrate finer public terrain providers with on-demand sampling, attribution, and explicit coverage.
+- [x] Add the common finer-source pipeline, USGS on-demand sampling, attribution and explicit coverage.
+- [ ] Extend automatic providers beyond the USGS/GLO-30 paths, apply the global geoid and reconcile source-boundary hydrology.
 - [ ] Research and import the best available terrain/shape data for other planets and major moons, with explicit coverage and accuracy.
 - [ ] Add the major planetary moons and their orbital interactions.
 - [ ] Implement axial rotation and separate body-local voxel grids that move and rotate with each celestial body while retaining edit coordinates.
@@ -56,7 +57,7 @@ The engine must select sources by coverage, sampling resolution, vertical datum,
 | [NOAA ETOPO](https://www.ncei.noaa.gov/products/etopo-global-relief-model) | Global relief and bathymetry fallback | Included, with decimated global and native regional samples. |
 | [Copernicus GLO-30](https://registry.opendata.aws/copernicus-dem/) | Broad 30 m surface-height coverage | Existing on-demand importer. |
 | [ESA WorldCover](https://esa-worldcover.org/en/about/about) | Land-cover classes and permanent water | Fresh importer retains all eleven classes in PDEM v2, with old binary-water packs still supported. The default starter crop is upgraded; wider cache upgrades/biome use remain pending. |
-| [USGS 3DEP](https://www.usgs.gov/faqs/what-coverage-3d-elevation-program-3dep-dems) | Finer US terrain where products are available | Provider selection/import pending; coverage must be queried. |
+| [USGS 3DEP](https://www.usgs.gov/faqs/what-coverage-3d-elevation-program-3dep-dems) | Finer US terrain where products are available | OPR/1 m/S1M catalogue discovery, native-resolution import and on-demand contiguous-US upgrades implemented; a small 1 m starter crop is included. |
 | [PGC polar elevation products](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/) | Finer Arctic/Antarctic surface models | Access, datum, coverage, and product-specific terms must be checked before enabling a provider. |
 | [IUPAC periodic table](https://iupac.org/what-we-do/periodic-table-of-elements/) | Element identity and atomic-weight provenance | Full identity/reference data and composition catalogue included; thermal simulation remains pending. |
 
@@ -76,3 +77,7 @@ See [landscape generation and texture caching](landscapes.md) for the shared rul
 ## Local edit meshing checkpoint
 
 [Local terrain refinement](terrain-edit-meshing.md) removes the patch-wide 0.25 mm penalty caused by tiny edits. Complete edited-view fixtures fell from 2.04–2.13 million vertices to 165,423–188,661 vertices, including voxel walls, without changing stored matter. Matched adaptive edges and skirts, physical cut positions, adjacent terrain heights, and Vulkan editing/persistence were verified. Natural cut walls still have cuboid geometry; cold-view coverage, volume meshing, providers, moons and body frames remain unfinished.
+
+## Terrain source checkpoint
+
+[Source selection/provenance](terrain-sources.md) now chooses the finest valid overlapping coverage, retains resolution/accuracy/reference metadata, and supports native-resolution USGS OPR/1 m/S1M imports and explicit local rasters. The 1 m starter crop is normalized to EGM2008 and loaded in the actual engine. Survey halos blend; missing heights/classes fall back independently. Global geoid displacement, additional automatic national/polar providers, stronger hydrology and all other-planet/moon datasets remain unfinished.

@@ -233,7 +233,7 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
     if (status && *status)
         text(h, 34, 236, 1, accent, status);
     int px = width - 332;
-    rect(h, (float)px, 18, 314, hit.hit ? 210 : 70, panel);
+    rect(h, (float)px, 18, 314, hit.hit ? 242 : 70, panel);
     text(h, px + 16, 34, 1, accent, "PLANET MATERIAL INSPECTOR");
     if (hit.hit) {
         const Material *mat = material_get(hit.value.material);
@@ -260,6 +260,16 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
         else
             snprintf(line, sizeof(line), "M MATERIAL CATALOGUE / F2 SUN");
         text(h, px + 16, 196, 1, muted, line);
+        TerrainSourceInfo source;
+        if (planet_detail_source(p, source_geo.latitude_deg, source_geo.longitude_deg, &source)) {
+            snprintf(line, sizeof(line), "SRC %.15s / %s%s", terrain_provider_name(source.provider),
+                     height_datum_name(source.datum), source.legacy ? " ASSUMED" : "");
+            text(h, px + 16, 212, 1, muted, line);
+            snprintf(line, sizeof(line), "SOURCE %.2F M / VERTICAL %s", source.effective_resolution_m,
+                     isnan(source.vertical_accuracy_m) ? "UNKNOWN" : "DECLARED");
+            text(h, px + 16, 228, 1, muted, line);
+        }
+
     } else
         text(h, px + 16, 56, 1, muted, "POINT AT THE SURFACE TO EDIT");
     rect(h, width * .5f - 232, height - 70, 464, 52, panel);
@@ -384,15 +394,15 @@ void hud_relativity(Hud *h, int width, int height, double time, double scale, do
     Vec3 panel = v3(.018f, .03f, .042f), accent = v3(.37f, .79f, .59f), muted = v3(.48f, .58f, .62f);
     int x = width - 332;
     char line[160];
-    rect(h, (float)x, 230, 314, 102, panel);
-    text(h, x + 16, 244, 1, accent, "SOLAR SYSTEM / F11 INSPECT");
+    rect(h, (float)x, 272, 314, 102, panel);
+    text(h, x + 16, 286, 1, accent, "SOLAR SYSTEM / F11 INSPECT");
     snprintf(line, sizeof(line), "J2000 + %.3F DAYS / %.0F X", time / 86400, scale);
-    text(h, x + 16, 262, 1, muted, line);
+    text(h, x + 16, 304, 1, muted, line);
     snprintf(line, sizeof(line), "CLOCK RATE %.12F", rate);
-    text(h, x + 16, 280, 1, muted, line);
+    text(h, x + 16, 322, 1, muted, line);
     snprintf(line, sizeof(line), "CLOCK LAG %.6F MS", deficit * 1000);
-    text(h, x + 16, 298, 1, muted, line);
-    text(h, x + 16, 316, 1, accent, "SR + 1PN / F9 SPEED / F12 PAUSE");
+    text(h, x + 16, 340, 1, muted, line);
+    text(h, x + 16, 358, 1, accent, "SR + 1PN / F9 SPEED / F12 PAUSE");
 }
 void hud_build_solar(Hud *h, const SolarSystem *s, int focus, int width, int height, float fps, double scale,
                      double speed, double rate, double deficit) {

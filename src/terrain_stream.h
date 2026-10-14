@@ -4,7 +4,9 @@
 typedef struct {
     long process;
     bool enabled;
-    int lat_key, lon_key;
+    int lat_key, lon_key, key_scale;
+    int checked_lat, checked_lon;
+    bool requested_fine, fine_checked;
     double age, cooldown, stable;
 } TerrainStream;
 void terrain_stream_stop(TerrainStream *stream);
