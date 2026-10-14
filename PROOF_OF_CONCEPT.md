@@ -1,5 +1,7 @@
 # Voxel Engine — proof of concept
 
+**AI disclosure: This project was made with AI using OpenAI Codex. AI generated substantial portions of the code, shaders, tests, and documentation under the project creator's direction.**
+
 This project is a **proof-of-concept voxel engine aiming to simulate reality**, inspired by the idea of a Matrix-like simulated world. The goal is to make a world where matter has composition and physical properties, everything can be created or changed by hand, and useful objects emerge from performing the processes that produce them.
 
 Earth is the current demonstration, not the boundary of the project. The long-term aim is a general simulator capable of supporting environments from tiny material structures to planets and space.

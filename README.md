@@ -1,5 +1,7 @@
 # Voxel Engine
 
+**AI disclosure: This project was made with AI using OpenAI Codex. AI generated substantial portions of the code, shaders, tests, and documentation under the project creator's direction.**
+
 **A proof-of-concept voxel engine aiming to simulate reality: a Matrix-like world built from editable matter and physical processes.** Written in C17 with Vulkan, it explores how millimeter-scale edits, planetary scale, and efficient mesh rendering can coexist. Earth is the current demonstration world; the long-term project is a general reality simulator. See [the project vision and current scope](PROOF_OF_CONCEPT.md).
 
 C17 + Vulkan foundation for an editable, physically scaled planet. The default world is Earth: an oblate ellipsoid with real sampled topography and bathymetry, sparse global **1 mm edits**, dynamic surface LOD, terrain-derived textures, and gravity calculated from planetary mass and distance to its center.
