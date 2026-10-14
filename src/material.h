@@ -1,8 +1,9 @@
 #ifndef MATERIAL_H
 #define MATERIAL_H
+#include "elements.h"
 #include <stdbool.h>
 #include <stdint.h>
-#define COMPOSITION_CAPACITY 6
+#define COMPOSITION_CAPACITY 16
 /* Stable IDs are part of the save format. Never reorder existing materials. */
 typedef enum {
     MAT_AIR,
@@ -18,7 +19,6 @@ typedef enum {
     MAT_ICE,
     MAT_COUNT
 } MaterialId;
-typedef enum { E_H, E_C, E_O, E_AL, E_SI, E_CA, E_FE, E_CU, E_COUNT } ElementId;
 typedef struct {
     ElementId element;
     float mass_fraction;
@@ -34,6 +34,5 @@ typedef struct {
     Constituent composition[COMPOSITION_CAPACITY];
 } Material;
 const Material *material_get(uint16_t id);
-const char *element_symbol(ElementId id);
 bool materials_validate(void);
 #endif

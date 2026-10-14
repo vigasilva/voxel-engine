@@ -45,11 +45,9 @@ static const Material materials[MAT_COUNT] = {
 const Material *material_get(uint16_t id) {
     return &materials[id < MAT_COUNT ? id : MAT_AIR];
 }
-const char *element_symbol(ElementId id) {
-    static const char *s[] = {"H", "C", "O", "Al", "Si", "Ca", "Fe", "Cu"};
-    return id < E_COUNT ? s[id] : "?";
-}
 bool materials_validate(void) {
+    if (!elements_validate())
+        return false;
     for (int i = 0; i < MAT_COUNT; i++) {
         const Material *m = &materials[i];
         float sum = 0;
@@ -58,7 +56,7 @@ bool materials_validate(void) {
             return false;
         for (int j = 0; j < m->constituent_count; j++) {
             Constituent c = m->composition[j];
-            if (c.element >= E_COUNT || !isfinite(c.mass_fraction) || c.mass_fraction < 0)
+            if (c.element < 0 || c.element >= E_COUNT || !isfinite(c.mass_fraction) || c.mass_fraction < 0)
                 return false;
             sum += c.mass_fraction;
         }
