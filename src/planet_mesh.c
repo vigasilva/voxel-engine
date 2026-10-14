@@ -23,6 +23,9 @@ typedef struct PolygonList {
     Polygon *items;
     size_t count, capacity;
 } PolygonList;
+typedef struct {
+    uint16_t x, y, width, height;
+} TerrainRectangle;
 static bool polygon_append(PolygonList *list, Polygon value) {
     if (list->count == list->capacity) {
         if (list->capacity > SIZE_MAX / 2 / sizeof(Polygon))
@@ -455,6 +458,9 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
                                                       : PLANET_SURFACE_GRID;
     DVec3 vertices[129][129], normals[129][129];
     uint16_t materials[128][128];
+    uint16_t owners[128][128];
+    TerrainRectangle rectangles[128 * 128];
+    size_t rectangle_count = 0;
     bool used[128][128] = {{false}};
     double size = 2.0 / (1u << patch->level), u0 = -1 + patch->x * size, v0 = -1 + patch->y * size;
     double error = edits.count ? .00025 : fmin(2000, fmax(.00025, patch->span_m * .00008));
@@ -507,21 +513,80 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
                 height++;
             }
             for (int dy = 0; dy < height; dy++)
-                for (int dx = 0; dx < width; dx++)
+                for (int dx = 0; dx < width; dx++) {
                     used[y + dy][x + dx] = true;
-            DVec3 corners[4] = {vertices[y][x], vertices[y + height][x], vertices[y + height][x + width],
-                                vertices[y][x + width]};
-            const int indices[2][3] = {{0, 1, 2}, {0, 2, 3}};
-            for (int t = 0; t < 2; t++) {
-                Polygon poly = {.count = 3, .color = color(materials[y][x])};
+                    owners[y + dy][x + dx] = (uint16_t)rectangle_count;
+                }
+            rectangles[rectangle_count++] =
+                (TerrainRectangle){(uint16_t)x, (uint16_t)y, (uint16_t)width, (uint16_t)height};
+        }
+    /* A merged edge must retain the corners of its neighbouring rectangles.
+       Otherwise independently approximated edges leave visible sky cracks.
+       Plan the partition first, then triangulate matching shared boundaries. */
+    for (size_t rectangle = 0; rectangle < rectangle_count; rectangle++) {
+        TerrainRectangle r = rectangles[rectangle];
+        int x = r.x, y = r.y, width = r.width, height = r.height;
+        DVec3 corners[4] = {vertices[y][x], vertices[y + height][x], vertices[y + height][x + width],
+                            vertices[y][x + width]};
+        uint16_t boundary[4 * 128];
+        int boundary_count = 0;
+        boundary[boundary_count++] = (uint16_t)(y * 129 + x);
+        for (int i = 1; i < height; i++)
+            if (x > 0 && owners[y + i - 1][x - 1] != owners[y + i][x - 1])
+                boundary[boundary_count++] = (uint16_t)((y + i) * 129 + x);
+        boundary[boundary_count++] = (uint16_t)((y + height) * 129 + x);
+        for (int i = 1; i < width; i++)
+            if (y + height < grid && owners[y + height][x + i - 1] != owners[y + height][x + i])
+                boundary[boundary_count++] = (uint16_t)((y + height) * 129 + x + i);
+        boundary[boundary_count++] = (uint16_t)((y + height) * 129 + x + width);
+        for (int i = height - 1; i > 0; i--)
+            if (x + width < grid && owners[y + i - 1][x + width] != owners[y + i][x + width])
+                boundary[boundary_count++] = (uint16_t)((y + i) * 129 + x + width);
+        boundary[boundary_count++] = (uint16_t)(y * 129 + x + width);
+        for (int i = width - 1; i > 0; i--)
+            if (y > 0 && owners[y - 1][x + i - 1] != owners[y - 1][x + i])
+                boundary[boundary_count++] = (uint16_t)(y * 129 + x + i);
+        const int indices[2][3] = {{0, 1, 2}, {0, 2, 3}};
+        int previous[4 * 128], next[4 * 128], at = 0, remaining_area = width * height * 2;
+        for (int i = 0; i < boundary_count; i++) {
+            previous[i] = (i + boundary_count - 1) % boundary_count;
+            next[i] = (i + 1) % boundary_count;
+        }
+        /* Convex ears retain all shared points with N-2 triangles and no extra
+           center vertex. Integer grid coordinates avoid near-collinear tests. */
+        for (int t = 0; t < boundary_count - 2; t++) {
+            Polygon poly = {.count = 3, .color = color(materials[y][x])};
+            if (boundary_count == 4) {
                 for (int j = 0; j < 3; j++)
                     poly.p[j] = corners[indices[t][j]];
-                DVec3 normal = triangle_normal(poly.p[0], poly.p[1], poly.p[2], normals[y][x]);
-                poly.normal = v3((float)normal.x, (float)normal.y, (float)normal.z);
-                if (!base_triangle(m, poly, patch->origin, &index))
+            } else {
+                bool found = false;
+                for (int scan = 0; scan < boundary_count; scan++) {
+                    int a = boundary[previous[at]], b = boundary[at], c = boundary[next[at]];
+                    int cross =
+                        (b % 129 - a % 129) * (c / 129 - b / 129) - (b / 129 - a / 129) * (c % 129 - b % 129);
+                    if (cross < 0 && (t == boundary_count - 3 || remaining_area + cross > 0)) {
+                        poly.p[0] = vertices[a / 129][a % 129];
+                        poly.p[1] = vertices[b / 129][b % 129];
+                        poly.p[2] = vertices[c / 129][c % 129];
+                        next[previous[at]] = next[at];
+                        previous[next[at]] = previous[at];
+                        remaining_area += cross;
+                        at = next[at];
+                        found = true;
+                        break;
+                    }
+                    at = next[at];
+                }
+                if (!found)
                     goto failed;
             }
+            DVec3 normal = triangle_normal(poly.p[0], poly.p[1], poly.p[2], normals[y][x]);
+            poly.normal = v3((float)normal.x, (float)normal.y, (float)normal.z);
+            if (!base_triangle(m, poly, patch->origin, &index))
+                goto failed;
         }
+    }
     DVec3 face = planet_cube_direction(patch->face, 0, 0),
           axis_u = pd_sub(pd_scale(planet_cube_direction(patch->face, 1, 0), sqrt(2)), face),
           axis_v = pd_sub(pd_scale(planet_cube_direction(patch->face, 0, 1), sqrt(2)), face);
@@ -546,7 +611,17 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     for (int edge = 0; edge < 4; edge++)
         for (int first = 0; first < grid;) {
             int last = first + 1;
-            while (last < grid && terrain_edge(vertices, edge, first, last + 1, grid, error))
+            int owner = edge == 0   ? owners[first][0]
+                        : edge == 1 ? owners[first][grid - 1]
+                        : edge == 2 ? owners[0][first]
+                                    : owners[grid - 1][first];
+            /* Skirt tops must use the same endpoints as surface rectangles. */
+            while (last < grid &&
+                   owner == (edge == 0   ? owners[last][0]
+                             : edge == 1 ? owners[last][grid - 1]
+                             : edge == 2 ? owners[0][last]
+                                         : owners[grid - 1][last]) &&
+                   terrain_edge(vertices, edge, first, last + 1, grid, error))
                 last++;
             int x0 = edge == 0 ? 0 : edge == 1 ? grid : first;
             int y0 = edge == 2 ? 0 : edge == 3 ? grid : first;

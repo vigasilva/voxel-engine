@@ -323,6 +323,88 @@ static void test_projected_river_lod(void) {
     mesh_destroy(&disabled);
     planet_destroy(&p);
 }
+typedef struct {
+    Vec3 a, b;
+    bool surface;
+} TerrainEdge;
+static int compare_position(Vec3 a, Vec3 b) {
+    if (a.x != b.x)
+        return a.x < b.x ? -1 : 1;
+    if (a.y != b.y)
+        return a.y < b.y ? -1 : 1;
+    return a.z < b.z ? -1 : a.z > b.z;
+}
+static int compare_edge(const void *aa, const void *bb) {
+    const TerrainEdge *a = aa, *b = bb;
+    int c = compare_position(a->a, b->a);
+    return c ? c : compare_position(a->b, b->b);
+}
+static void test_terrain_seams(void) {
+    Planet p;
+    CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    /* Real gently curved terrain produces differently sized greedy rectangles.
+       Every interior edge must have an identical partner, without T-junctions. */
+    DVec3 direction = pd_normalize(planet_from_geographic(&p, 40, -105, 0));
+    int face = 3, level = 21;
+    DVec3 f = planet_cube_direction(face, 0, 0),
+          u = pd_sub(pd_scale(planet_cube_direction(face, 1, 0), sqrt(2)), f),
+          v = pd_sub(pd_scale(planet_cube_direction(face, 0, 1), sqrt(2)), f);
+    double size = 2.0 / (1u << level), denominator = pd_dot(direction, f);
+    PlanetPatch patch = {.face = face,
+                         .level = level,
+                         .x = (uint32_t)floor((pd_dot(direction, u) / denominator + 1) / size),
+                         .y = (uint32_t)floor((pd_dot(direction, v) / denominator + 1) / size),
+                         .span_m = p.a_m * size,
+                         .river_lod = PLANET_RIVER_DISABLED_LOD};
+    double u0 = -1 + patch.x * size, v0 = -1 + patch.y * size;
+    patch.center_m =
+        planet_surface_point(&p, planet_cube_direction(face, u0 + size * .5, v0 + size * .5), true);
+    patch.radius_m = patch.span_m * 1.5;
+    WorldPosition origin;
+    CHECK(planet_set_position(patch.center_m, &origin));
+    patch.origin = origin.cell;
+    Mesh mesh = {0};
+    CHECK(planet_mesh_patch(&mesh, &p, &patch));
+    TerrainEdge *edges = malloc(mesh.count * sizeof(*edges));
+    CHECK(edges);
+    size_t count = 0;
+    const Material *stone = material_get(MAT_STONE);
+    Vec3 skirt = v3(stone->color[0], stone->color[1], stone->color[2]);
+    for (size_t i = 0; i < mesh.count; i += 3) {
+        bool surface = memcmp(&mesh.vertices[i].color, &skirt, sizeof(skirt)) != 0;
+        for (int j = 0; j < 3; j++) {
+            Vec3 a = mesh.vertices[i + j].position, b = mesh.vertices[i + (j + 1) % 3].position;
+            if (compare_position(a, b) > 0) {
+                Vec3 swap = a;
+                a = b;
+                b = swap;
+            }
+            edges[count++] = (TerrainEdge){a, b, surface};
+        }
+    }
+    qsort(edges, count, sizeof(*edges), compare_edge);
+    size_t unpaired = 0, paired = 0;
+    for (size_t i = 0; i < count;) {
+        size_t end = i + 1;
+        bool surface = edges[i].surface;
+        while (end < count && !compare_edge(&edges[i], &edges[end])) {
+            surface |= edges[end].surface;
+            end++;
+        }
+        if (surface) {
+            paired += end - i == 2;
+            unpaired += end - i != 2;
+        }
+        i = end;
+    }
+    printf("Terrain seams: %zu paired surface/skirt edges, %zu unpaired, %zu vertices\n", paired, unpaired,
+           mesh.count);
+    CHECK(paired > 100 && unpaired == 0);
+    CHECK(mesh.count < mesh.unit_faces * 6);
+    free(edges);
+    mesh_destroy(&mesh);
+    planet_destroy(&p);
+}
 static void test_height_and_greedy(void) {
     Planet p;
     CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
@@ -784,7 +866,12 @@ static void test_inland_water_and_detail(void) {
            inland_level);
     planet_destroy(&p);
 }
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--terrain-seams")) {
+        test_terrain_seams();
+        return 0;
+    }
+    test_terrain_seams();
     test_smooth_edit_surface();
     test_projected_river_lod();
     test_inland_water_and_detail();
