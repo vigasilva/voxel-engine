@@ -94,7 +94,7 @@ Terrain sampling and merging now use quantized projected error based on distance
 
 Turning away retains invisible terrain meshes until slot or memory pressure requires eviction, rather than discarding them after 120 frames. The planner reserves reusable patch slots before assigning new ones, and invisible GPU mesh storage has a 128 MiB LRU retention allowance; visible geometry and authoritative edit storage have independent lifetimes. F1 shows cached mesh count and memory. The regression verifies returning to 148 cached overview patches after 300 away-facing frames requires zero new mesh jobs. Retaining a coarse parent across a different-detail replacement is a separate transition mechanism under development.
 
-`--render-stats` prints frame number, rendering mode, visible/pending patches, drawn triangles, and cached mesh memory twice per second. The isolated Vulkan cache check is `python3 tests/solar_window.py build/voxel_engine --cache-only`; it verifies actual GPU meshes survive turning toward the Sun for at least 300 frames and returning to Earth requires no new mesh jobs.
+`--render-stats` prints frame number, rendering mode, visible/pending patches, drawn triangles, cached mesh memory, and quadtree planning count twice per second. Completed stationary views reuse their existing patch selection; camera/projection changes, edits, streamed data, and world-shape changes invalidate it. The isolated Vulkan cache check is `python3 tests/solar_window.py build/voxel_engine --cache-only`; it verifies actual GPU meshes survive turning toward the Sun for at least 300 frames and returning to Earth requires no new mesh jobs.
 
 ![Satellite-mapped inland water above sea level](docs/earth-inland-water.png)
 

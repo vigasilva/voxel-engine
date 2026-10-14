@@ -73,16 +73,21 @@ def main():
             window = start('--altitude', '1000000', '--freecam', '--render-stats')
             xdo('key', 'F7', 'F12')
             def stats():
-                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+)', logpath.read_text())
-                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), cache=int(m[5]), cache_mib=float(m[6])) for m in matches]
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+) plans=(\d+)', logpath.read_text())
+                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), cache=int(m[5]), cache_mib=float(m[6]), plans=int(m[7])) for m in matches]
             def loaded():
                 values = stats()
                 return values[-1] if values and values[-1]['visible'] > 0 and values[-1]['pending'] == 0 else None
             initial = wait_for(loaded, 'complete overview terrain', timeout=25)
+            def idle():
+                values = stats()
+                return values[-1] if values and values[-1]['frame'] >= initial['frame'] + 50 else None
+            idle_stats = wait_for(idle, 'stationary loaded-view frames')
+            assert idle_stats['plans'] == initial['plans'], 'Stationary terrain was needlessly replanned'
             xdo('key', 'F2')
             def away():
                 values = stats()
-                return values[-1] if values and values[-1]['frame'] >= initial['frame'] + 300 and values[-1]['cache'] > 20 else None
+                return values[-1] if values and values[-1]['frame'] >= idle_stats['frame'] + 300 and values[-1]['cache'] > 20 else None
             retained = wait_for(away, '300 away-facing frames with retained GPU meshes', timeout=25)
             offset = logpath.stat().st_size
             xdo('key', 'F7')

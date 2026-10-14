@@ -1166,6 +1166,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         fmax(0, r->planet_altitude - 12000 * scale) * 2 * tan(1.22173 * .5) / (height > 0 ? height : 800);
     r->texture_only = r->albedo_loaded && r->geometry_view == GEOMETRY_SOLID && pixel_m > 12000 * scale;
     if (r->texture_only) {
+        r->planet_scene.selection_valid = false;
         r->planet_scene.frame++;
         r->planet_scene.visible = 0;
         r->planet_scene.pending = 0;

@@ -440,6 +440,19 @@ static void test_terrain_rotation_cache(void) {
         patch->built_river_lod = patch->river_lod;
         patch->built_terrain_lod = patch->terrain_lod;
     }
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    uint64_t plans = scene->planning_count;
+    clock_t start = clock();
+    for (int frame = 0; frame < 1000; frame++)
+        CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->planning_count == plans && scene->visible == visible_count && scene->pending == 0);
+    printf("Idle planning: 1000 unchanged frames in %.3f CPU ms, zero quadtree rebuilds\n",
+           1000.0 * (clock() - start) / CLOCKS_PER_SEC);
+    scene->viewport_height = 32768;
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->planning_count > plans && scene->pending > 0);
+    scene->viewport_height = 800;
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
     for (int frame = 0; frame < 300; frame++) {
         CHECK(planet_scene_update(scene, &p, camera, away, v3(0, 0, 1), 1.6, p.a_m * 8));
         CHECK(scene->visible == 0);
@@ -454,6 +467,9 @@ static void test_terrain_rotation_cache(void) {
             CHECK(scene->patches[i].visible && scene->patches[i].ready && !scene->patches[i].reset);
     printf("Rotation cache: %zu patches survived 300 away-facing frames; return requires zero mesh jobs\n",
            visible_count);
+    p.surface_revision++;
+    CHECK(planet_scene_update(scene, &p, camera, toward, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->pending > 0); /* Streamed source changes cannot reuse stale selection readiness. */
     free(scene);
     planet_destroy(&p);
 }

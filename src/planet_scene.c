@@ -168,6 +168,23 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     if (!isfinite(view) || view < 100 || view > 6e9 || !isfinite(aspect) || aspect <= 0)
         return false;
     s->frame++;
+    WorldPosition previous = s->selection_camera;
+    bool stationary = previous.cell.x == position.cell.x && previous.cell.y == position.cell.y &&
+                      previous.cell.z == position.cell.z && previous.offset_mm.x == position.offset_mm.x &&
+                      previous.offset_mm.y == position.offset_mm.y &&
+                      previous.offset_mm.z == position.offset_mm.z;
+    if (s->selection_valid && !s->pending && stationary && !memcmp(&d, &s->selection_direction, sizeof(d)) &&
+        !memcmp(&up, &s->selection_up, sizeof(up)) && aspect == s->selection_aspect &&
+        view == s->selection_view && s->viewport_height == s->selection_height &&
+        p->revision == s->selection_revision && p->surface_revision == s->selection_surface_revision &&
+        p->a_m == s->selection_a_m && p->b_m == s->selection_b_m &&
+        p->terrain_checksum == s->selection_terrain_checksum && p->relief_enabled == s->selection_relief) {
+        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+            if (s->patches[i].visible)
+                s->patches[i].last_visible = s->frame;
+        return true;
+    }
+    s->planning_count++;
     s->visible = s->pending = 0;
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
         s->patches[i].visible = false;
@@ -245,5 +262,18 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
              (e->edited && e->built_edit_lod_mm != e->edit_lod_mm)))
             s->pending++;
     }
+    s->selection_valid = true;
+    s->selection_camera = position;
+    s->selection_direction = d;
+    s->selection_up = up;
+    s->selection_aspect = aspect;
+    s->selection_view = view;
+    s->selection_height = s->viewport_height;
+    s->selection_revision = p->revision;
+    s->selection_surface_revision = p->surface_revision;
+    s->selection_a_m = p->a_m;
+    s->selection_b_m = p->b_m;
+    s->selection_terrain_checksum = p->terrain_checksum;
+    s->selection_relief = p->relief_enabled;
     return true;
 }

@@ -82,6 +82,16 @@ typedef struct {
     int viewport_height;
     double river_clearance_m, river_pixel_factor;
     bool river_disabled;
+    bool selection_valid;
+    WorldPosition selection_camera;
+    Vec3 selection_direction, selection_up;
+    float selection_aspect;
+    double selection_view;
+    int selection_height;
+    uint64_t selection_revision, selection_surface_revision, planning_count;
+    double selection_a_m, selection_b_m;
+    uint32_t selection_terrain_checksum;
+    bool selection_relief;
 } PlanetScene;
 DVec3 planet_cube_direction(int face, double u, double v);
 DVec3 planet_surface_point(const Planet *p, DVec3 direction, bool ocean);
