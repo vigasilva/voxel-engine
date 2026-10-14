@@ -38,8 +38,11 @@ int main(void) {
             size_t at = (y * 8 + x) * 4;
             double decoded = ((pixels[at] * 256 + pixels[at + 1]) / 65535.0) * 24000 - 12000;
             CHECK(fabs(decoded - samples[(3 - y) * 8 + x]) < .19);
-            CHECK(pixels[at + 2] == planet_surface_material(90 - 180 * (y + .5) / height,
-                                                            -180 + 360 * (x + .5) / width, fmax(0, decoded)));
+            double lat = 90 - 180 * (y + .5) / height;
+            double lon = -180 + 360 * (x + .5) / width;
+            LandscapeSample expected = planet_landscape_at(&p, lat, lon, false);
+            CHECK(pixels[at + 2] == expected.appearance_material);
+            CHECK(pixels[at + 2] < MAT_COUNT);
             CHECK(pixels[at + 3] == 0);
         }
     free(pixels);

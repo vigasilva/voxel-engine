@@ -25,15 +25,16 @@ with tempfile.TemporaryDirectory(prefix='voxel-material-generation-') as directo
         target.write_bytes((ROOT/source).read_bytes())
     path = module.ROOT/'data/materials/recipes.json'
     recipe = json.loads(path.read_text())
-    addition = dict(recipe['materials'][11], id=178, key='TEST_ROCK', name='Test rock',
+    next_id = len(recipe['materials']) + 118
+    addition = dict(recipe['materials'][11], id=next_id, key='TEST_ROCK', name='Test rock',
                     recipe={'mix':{'QUARTZ':.5,'CALCITE':.5}})
     recipe['materials'].append(addition)
     path.write_text(json.dumps(recipe))
     extended = module.generate()
     before, after = ids(original['src/material_ids.h']), ids(extended['src/material_ids.h'])
     assert all(after[key] == number for key,number in before.items())
-    assert after['TEST_ROCK'] == 178 and after['ELEMENT_OG'] == 177
-    assert '#define MATERIAL_COUNT 179' in extended['shaders/material_ids.glsl']
+    assert after['TEST_ROCK'] == next_id and after['ELEMENT_OG'] == 177
+    assert f'#define MATERIAL_COUNT {next_id+1}' in extended['shaders/material_ids.glsl']
     assert '[MAT_TEST_ROCK]' in extended['src/materials.inc']
     recipe['materials'][-1]['id'] = 60
     path.write_text(json.dumps(recipe))

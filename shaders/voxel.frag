@@ -17,12 +17,17 @@ void main() {
     uint noise=(c.x*73856093u)^(c.y*19349663u)^(c.z*83492791u);
     float variation=0.91+float(noise%100u)*0.0015;
     if(pc.chunkOffset.w>0.5) variation=1.0;
-    vec3 color=surfaceColor*variation*light;
+    vec3 baseColor=surfaceColor;
+    int terrainSlot=int(round(-pc.selected.w))-1;
+    if(pc.chunkOffset.w>0.5 && pc.chunkOffset.w<1.5 && g.cameraEarth.w>0.5)
+        baseColor=patchColor(terrainSlot,g.cameraEarth.xyz+(worldPosition+pc.chunkOffset.xyz)*.125,
+                             pc.viewport.w<0.0,surfaceColor);
+    vec3 color=baseColor*variation*light;
     if(pc.chunkOffset.w>0.5 && pc.viewport.w>=0.0) {
         vec3 relative=(worldPosition+pc.chunkOffset.xyz)*0.125;
         vec3 stable=g.detailOrigin.xyz+relative;
         float detail=detailNoise(stable,4.0)*.10+detailNoise(stable,1.0)*.09+detailNoise(stable,.25)*.06+detailNoise(stable,.0625)*.025+detailNoise(stable,.016)*.015+detailNoise(stable,.004)*.01;
-        vec3 albedo=surfaceColor*(1.0+detail);
+        vec3 albedo=baseColor*(1.0+detail);
         float distant=smoothstep(1500.0,15000.0,length(relative));
         if(pc.chunkOffset.w<1.5 && g.cameraEarth.w>0.5)
             albedo=mix(albedo,earthColor(g.cameraEarth.xyz+relative),distant);
@@ -40,7 +45,7 @@ void main() {
         light=ambient+(1.0-ambient)*max(dot(n,sun),0.0);
         color=albedo*light;
     }
-    if(pc.chunkOffset.w>0.5 && pc.viewport.w<0.0) color=surfaceColor;
+    if(pc.chunkOffset.w>0.5 && pc.viewport.w<0.0) color=baseColor;
     vec3 f=fract(worldPosition);
     vec2 faceUV=abs(worldNormal.x)>0.5?f.yz:(abs(worldNormal.y)>0.5?f.xz:f.xy);
     float edge=min(min(faceUV.x,1.0-faceUV.x),min(faceUV.y,1.0-faceUV.y));

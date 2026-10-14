@@ -334,21 +334,6 @@ static bool terrain_rectangle(DVec3 vertices[129][129], int x, int y, int width,
         }
     return true;
 }
-static bool terrain_edge(DVec3 vertices[129][129], int edge, int first, int last, int grid, double error) {
-    int x0 = edge == 0 ? 0 : edge == 1 ? grid : first;
-    int y0 = edge == 2 ? 0 : edge == 3 ? grid : first;
-    int x1 = edge == 0 ? 0 : edge == 1 ? grid : last;
-    int y1 = edge == 2 ? 0 : edge == 3 ? grid : last;
-    DVec3 a = vertices[y0][x0], b = vertices[y1][x1];
-    for (ptrdiff_t i = first + 1; i < last; i++) {
-        int x = edge == 0 ? 0 : edge == 1 ? grid : i;
-        int y = edge == 2 ? 0 : edge == 3 ? grid : i;
-        DVec3 line = pd_add(a, pd_scale(pd_sub(b, a), (double)(i - first) / (last - first)));
-        if (pd_length(pd_sub(vertices[y][x], line)) > error)
-            return false;
-    }
-    return true;
-}
 static Polygon clip_direction(Polygon poly, DVec3 normal) {
     Polygon result = poly;
     result.count = 0;
@@ -435,8 +420,54 @@ static bool river_mesh(Mesh *mesh, Planet *p, const PlanetPatch *patch, const Ed
     free(ids);
     return ok;
 }
+static bool bake_patch_colors(Mesh *m, Planet *p, const PlanetPatch *patch, double u0, double v0,
+                              double size) {
+    _Static_assert(MAT_COUNT <= 256, "Terrain field IDs require a wider format above 256 materials");
+    if (!m->terrain_colors)
+        m->terrain_colors = malloc(TERRAIN_FIELD_BYTES);
+    if (!m->terrain_colors)
+        return false;
+    for (int y = 0; y < TERRAIN_FIELD_SIZE; y++)
+        for (int x = 0; x < TERRAIN_FIELD_SIZE; x++) {
+            DVec3 direction = planet_cube_direction(patch->face, u0 + size * (x + .5) / TERRAIN_FIELD_SIZE,
+                                                    v0 + size * (y + .5) / TERRAIN_FIELD_SIZE);
+            double t = 1 / sqrt((direction.x * direction.x + direction.y * direction.y) / (p->a_m * p->a_m) +
+                                direction.z * direction.z / (p->b_m * p->b_m));
+            PlanetGeo geo = planet_geographic(p, pd_scale(direction, t));
+            LandscapeSample sample = planet_overview_landscape(p, geo.latitude_deg, geo.longitude_deg);
+            const Material *mat = material_get(sample.appearance_material);
+            size_t at = ((size_t)y * TERRAIN_FIELD_SIZE + x) * 4;
+            m->terrain_colors[at] = (unsigned char)lroundf(fminf(1, fmaxf(0, mat->color[0])) * 255);
+            m->terrain_colors[at + 1] = (unsigned char)lroundf(fminf(1, fmaxf(0, mat->color[1])) * 255);
+            m->terrain_colors[at + 2] = (unsigned char)lroundf(fminf(1, fmaxf(0, mat->color[2])) * 255);
+            m->terrain_colors[at + 3] = (unsigned char)sample.surface_material;
+        }
+    size_t previous = 0, current = 0;
+    for (int width = TERRAIN_FIELD_SIZE; width > 1; width /= 2) {
+        current += (size_t)width * width * 4;
+        int n = width / 2;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                for (int c = 0; c < 4; c++) {
+                    unsigned sum = 0;
+                    for (int dy = 0; dy < 2; dy++)
+                        for (int dx = 0; dx < 2; dx++)
+                            sum += m->terrain_colors[previous +
+                                                     ((size_t)(y * 2 + dy) * width + x * 2 + dx) * 4 + c];
+                    m->terrain_colors[current + ((size_t)y * n + x) * 4 + c] = (unsigned char)((sum + 2) / 4);
+                }
+        previous = current;
+    }
+    m->terrain_mapping[0] = (float)u0;
+    m->terrain_mapping[1] = (float)v0;
+    m->terrain_mapping[2] = (float)(1 / size);
+    m->terrain_mapping[3] = (float)(patch->face + 8);
+    m->terrain_field = true;
+    return true;
+}
 bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     m->count = 0;
+    m->terrain_field = false;
     m->unit_faces = 0;
     m->surface_area_mm2 = 0;
     PlanetEdits edits = {0};
@@ -490,14 +521,38 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
     for (int y = 0; y < grid; y++)
         for (int x = 0; x < grid; x++) {
             PlanetGeo g = planet_geographic(p, vertices[y][x]);
-            bool native_water;
-            if (planet_detail_sample(p, g.latitude_deg, g.longitude_deg, NULL, &native_water))
+            if (planet_detail_sample(p, g.latitude_deg, g.longitude_deg, NULL, NULL))
                 materials[y][x] = planet_visible_material(p, g.latitude_deg, g.longitude_deg);
             else
+                /* Global rivers have independent projected-width ribbons. Their
+                   tiny material strips must not force solid terrain tessellation. */
                 materials[y][x] = planet_surface_material(
                     g.latitude_deg, g.longitude_deg,
                     planet_measured_elevation(p, g.latitude_deg, g.longitude_deg) * EARTH_A_METERS / p->a_m);
         }
+    /* At coarse detail, paint boundaries should not split the height mesh.
+       Keep wet/dry boundaries for the separate water pipeline, and retain all
+       material geometry for edits and sub-meter terrain. */
+    if (!edits.count && error >= 1) {
+        uint16_t land = MAT_AIR;
+        bool varied = false;
+        for (int y = 0; y < grid; y++)
+            for (int x = 0; x < grid; x++)
+                if (material_get(materials[y][x])->family != FAMILY_WATER) {
+                    if (land == MAT_AIR)
+                        land = materials[y][x];
+                    else
+                        varied |= land != materials[y][x];
+                }
+        if (varied) {
+            if (!bake_patch_colors(m, p, patch, u0, v0, size))
+                goto failed;
+            for (int y = 0; y < grid; y++)
+                for (int x = 0; x < grid; x++)
+                    if (material_get(materials[y][x])->family != FAMILY_WATER)
+                        materials[y][x] = land;
+        }
+    }
     m->unit_faces = (size_t)grid * grid + 4 * grid;
     /* Greedy rectangles preserve the sampled relief within the LOD error.
        Material edges and genuinely curved/rough regions keep their triangles. */
@@ -622,12 +677,10 @@ bool planet_mesh_patch(Mesh *m, Planet *p, const PlanetPatch *patch) {
                         : edge == 2 ? owners[0][first]
                                     : owners[grid - 1][first];
             /* Skirt tops must use the same endpoints as surface rectangles. */
-            while (last < grid &&
-                   owner == (edge == 0   ? owners[last][0]
-                             : edge == 1 ? owners[last][grid - 1]
-                             : edge == 2 ? owners[0][last]
-                                         : owners[grid - 1][last]) &&
-                   terrain_edge(vertices, edge, first, last + 1, grid, error))
+            while (last < grid && owner == (edge == 0   ? owners[last][0]
+                                            : edge == 1 ? owners[last][grid - 1]
+                                            : edge == 2 ? owners[0][last]
+                                                        : owners[grid - 1][last]))
                 last++;
             int x0 = edge == 0 ? 0 : edge == 1 ? grid : first;
             int y0 = edge == 2 ? 0 : edge == 3 ? grid : first;
@@ -702,6 +755,7 @@ static Polygon intersect_face(Polygon poly, PlanetBox b, int axis) {
 }
 bool planet_mesh_edits(Mesh *m, Planet *p, const PlanetPatch *patch) {
     m->count = 0;
+    m->terrain_field = false;
     m->unit_faces = 0;
     m->surface_area_mm2 = 0;
     PlanetBox bounds;

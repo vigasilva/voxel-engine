@@ -74,8 +74,8 @@ def main():
             window = start('--altitude', '1000000', '--freecam', '--render-stats')
             xdo('key', 'F7', 'F12')
             def stats():
-                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+) plans=(\d+)', logpath.read_text())
-                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), cache=int(m[5]), cache_mib=float(m[6]), plans=int(m[7])) for m in matches]
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+) plans=(\d+) fallback=\d+ fields=(\d+) field_uploads=(\d+)', logpath.read_text())
+                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), cache=int(m[5]), cache_mib=float(m[6]), plans=int(m[7]), fields=int(m[8]), field_uploads=int(m[9])) for m in matches]
             def loaded():
                 values = stats()
                 return values[-1] if values and values[-1]['visible'] > 0 and values[-1]['pending'] == 0 else None
@@ -93,13 +93,15 @@ def main():
             offset = logpath.stat().st_size
             xdo('key', 'F7')
             def returned():
-                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+)', logpath.read_text()[offset:])
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+).*?fields=(\d+) field_uploads=(\d+)', logpath.read_text()[offset:])
                 return matches[0] if matches else None
             first = wait_for(returned, 'first returning-view statistics')
             assert int(first[2]) == initial['visible'] and int(first[3]) == 0, first
+            assert initial['fields'] > 0 and int(first[4]) == initial['fields'], first
+            assert int(first[5]) == retained['field_uploads'], 'Returning view unnecessarily uploaded terrain colours'
             assert pixels(window) and max(pixels(window)) > 50, 'Cached Earth did not render'
             stop()
-            print(f"PASS: {retained['cache']} GPU meshes retained ({retained['cache_mib']:.2f} MiB); return to {initial['visible']} patches required zero mesh jobs")
+            print(f"PASS: {retained['cache']} GPU meshes retained ({retained['cache_mib']:.2f} MiB); return to {initial['visible']} patches required zero mesh jobs or colour uploads")
 
         def handover_check():
             window = start('--altitude', '1000000', '--freecam', '--render-stats')

@@ -94,7 +94,7 @@ static void test_water_edits(void) {
     CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
     DVec3 eye = planet_from_geographic(&p, 0, -140, 1), up = planet_up(&p, eye);
     PlanetHit water = planet_pick(&p, eye, pd_scale(up, -1), 4);
-    CHECK(water.hit && water.value.material == MAT_WATER && fabs(water.distance_m - 1) < .002);
+    CHECK(water.hit && water.value.material == MAT_SALT_WATER && fabs(water.distance_m - 1) < .002);
     CHECK(!planet_raycast(&p, eye, pd_scale(up, -1), 4).hit);
     PlanetBox hole;
     CHECK(planet_brush(water, 1, false, &hole));
@@ -726,17 +726,39 @@ static void test_physics_and_lod(void) {
                               v3((float)up.x, (float)up.y, (float)up.z), 1.6, 60000));
     CHECK(scene->visible > 10 && scene->visible < PLANET_PATCH_LIMIT);
     Mesh m = {0};
-    size_t vertices = 0;
+    size_t vertices = 0, color_fields = 0;
     clock_t start = clock();
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
         if (scene->patches[i].visible) {
             CHECK(planet_mesh_patch(&m, &p, &scene->patches[i]));
             vertices += m.count;
+            if (m.terrain_field) {
+                color_fields++;
+                CHECK(m.terrain_colors && m.terrain_mapping[3] == scene->patches[i].face + 8);
+                CHECK(m.terrain_mapping[2] > 0);
+                for (int py = 19; py < TERRAIN_FIELD_SIZE; py += 71)
+                    for (int px = 13; px < TERRAIN_FIELD_SIZE; px += 67) {
+                        unsigned char *pixel = m.terrain_colors + ((size_t)py * TERRAIN_FIELD_SIZE + px) * 4;
+                        CHECK(pixel[3] > MAT_AIR && pixel[3] < MAT_COUNT);
+                    }
+                /* The last mip must average appearance, not turn mixed IDs into
+                   a material selection; IDs stay exact in level-zero alpha. */
+                unsigned long sum[3] = {0};
+                for (size_t pixel = 0; pixel < (size_t)TERRAIN_FIELD_SIZE * TERRAIN_FIELD_SIZE; pixel++)
+                    for (int c = 0; c < 3; c++)
+                        sum[c] += m.terrain_colors[pixel * 4 + c];
+                for (int c = 0; c < 3; c++)
+                    CHECK(fabs(m.terrain_colors[TERRAIN_FIELD_BYTES - 4 + c] -
+                               sum[c] / ((double)TERRAIN_FIELD_SIZE * TERRAIN_FIELD_SIZE)) <= 5);
+            }
             for (size_t j = 0; j < m.count; j++)
                 CHECK(isfinite(m.vertices[j].position.x) && isfinite(m.vertices[j].position.y) &&
                       isfinite(m.vertices[j].position.z));
         }
+    CHECK(color_fields > 0);
     size_t ground_patches = scene->visible;
+    printf("Ground mesh workload: %zu patches, %zu vertices, %zu color fields\n", ground_patches, vertices,
+           color_fields);
     CHECK(vertices < 300000); /* Default ground fixture must not return to millions of terrain vertices. */
     double mesh_ms = 1000.0 * (clock() - start) / CLOCKS_PER_SEC;
     WorldPosition space;
@@ -822,6 +844,12 @@ static void test_atomic_edits(void) {
     planet_destroy(&p);
     CHECK(sqlite3_open(file, &db) == SQLITE_OK);
     CHECK(sqlite3_exec(db, "UPDATE terrain_config SET version=5,checksum=0", NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(db);
+    CHECK(planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    CHECK(planet_saved_chunks(&p) == 8 && planet_voxel(&p, edge, 0, 0).temperature_k == 400);
+    planet_destroy(&p);
+    CHECK(sqlite3_open(file, &db) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "UPDATE terrain_config SET version=6,checksum=0", NULL, NULL, NULL) == SQLITE_OK);
     sqlite3_close(db);
     CHECK(planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
     CHECK(planet_saved_chunks(&p) == 8 && planet_voxel(&p, edge, 0, 0).temperature_k == 400);
@@ -1005,7 +1033,8 @@ static void test_inland_water_and_detail(void) {
     lat = -1.4847685185185209;
     lon = -48.45347222222226;
     CHECK(planet_detail_sample(&p, lat, lon, &native, &water) && water);
-    CHECK(planet_visible_material(&p, lat, lon) == MAT_WATER);
+    const Material *coastal_water = material_get(planet_visible_material(&p, lat, lon));
+    CHECK(coastal_water->family == FAMILY_WATER && !coastal_water->solid);
     CHECK(planet_detail_refresh(&p) == 0);
     printf("Hydrology: inland water at %.2f m, exact picking/editing, Amazon network and Guama satellite "
            "mask verified\n",
@@ -1013,6 +1042,10 @@ static void test_inland_water_and_detail(void) {
     planet_destroy(&p);
 }
 int main(int argc, char **argv) {
+    if (argc == 2 && !strcmp(argv[1], "--terrain-cost")) {
+        test_physics_and_lod();
+        return 0;
+    }
     if (argc == 2 && !strcmp(argv[1], "--terrain-seams")) {
         test_terrain_seams();
         return 0;

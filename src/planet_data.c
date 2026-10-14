@@ -355,6 +355,26 @@ bool planet_detail_water_mask(const Planet *p, double lat, double lon, bool *wat
         *water = c == (m->version == 1 ? 1 : COVER_WATER);
     return true;
 }
+bool planet_detail_slope(const Planet *p, double lat, double lon, double *slope) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    int ix = (int)x, iy = (int)y;
+    double tx = x - ix, ty = y - iy, values[4];
+    for (int corner = 0; corner < 4; corner++) {
+        int32_t cm = (int32_t)get32(m->data + 64 + 4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
+        if (cm == INT32_MIN || cm < -1200000 || cm > 1000000)
+            return false;
+        values[corner] = cm * .01;
+    }
+    double dx = m->dx * 111319.49079327358 * fmax(.001, fabs(cos(lat * PI / 180))),
+           dy = m->dy * 111319.49079327358;
+    if (slope)
+        *slope = hypot(((values[1] - values[0]) * (1 - ty) + (values[3] - values[2]) * ty) / dx,
+                       ((values[2] - values[0]) * (1 - tx) + (values[3] - values[1]) * tx) / dy);
+    return true;
+}
 bool planet_detail_resolution(const Planet *p, double lat, double lon, double *dx, double *dy) {
     double x, y;
     DetailMap *m = detail_at(p, lat, lon, &x, &y);

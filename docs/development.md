@@ -11,10 +11,10 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes remain cached by slot/memory pressure. Loaded coarse parents now own their coverage until replacement regions finish, with child promotion after completion. | Cold views without loaded parents still stream progressively; bootstrap coverage and edit-heavy cases need further work. |
 | Occlusion culling | Vulkan bounding-box queries skip hidden patches when the camera and contributing geometry are unchanged. | Moving the camera invalidates results conservatively. Validate interactions with retained replacement coverage and expose its cost. |
 | Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover land-cover/water classes, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
-| Procedural terrain | Deterministic small-scale noise supplements measured heights; fallback areas receive larger noise octaves. | This is not yet a biome-aware landscape generator or a model of mountain erosion. |
-| Distant textures | Bakes engine heights, material IDs, and inland-water classification; no photographic Earth imagery. | Current material classification is too simple for a realistic global biome appearance. |
+| Procedural terrain | Shared biome/layer/climate rules and source-resolution-aware ridged/micro detail supplement measured heights; a reproducible tool exports synthetic or actual Earth samples. | Biome-aware generation and an export tool are implemented; climate/geology are estimates, with no hydraulic erosion model. |
+| Distant textures | Bakes engine heights, biome appearance and inland-water classification; coarse patches also cache engine colours independently from greedy geometry. No photographic Earth imagery. | Biome appearance now distinguishes canopy, soil, sand, snow and water. Global climate/geology remain procedural estimates; the overview atlas only rebakes at build time. |
 | Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
-| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and 178 stable placement materials; temperature is stored per voxel. | Add temperature/pressure phase queries and biome-aware use of the geological families. Reference standard states alone do not implement melting, flow, heat transfer, or chemistry. |
+| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and 186 stable placement materials; temperature is stored per voxel. | Add temperature/pressure phase queries and biome-aware use of the geological families. Reference standard states alone do not implement melting, flow, heat transfer, or chemistry. |
 | Solar System and relativity | Nine mutually gravitating bodies, approximate J2000 initial conditions, special-relativistic helpers, and leading weak-field Schwarzschild corrections. | Not a full Einstein field solver. Other planets are analytic renderings, not editable terrain worlds. |
 | Resource visualizers | CPU/RAM/tracked Vulkan allocations, frame history, material slices, patch queues, and occlusion counts. | Material slices are samples, not an ore-deposit generator; driver-wide GPU usage is not measured. |
 
@@ -22,7 +22,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 
 - [x] Reproduce and fix sky cracks inside greedy terrain patches; add topology regression and matching skirt boundaries.
 - [x] Make all graphics test suites share the same GPU lock.
-- [x] Reduce unmodified terrain triangle cost using projected detail and measured error (default ground fixture: about 2.3 million to 51,000 triangles).
+- [x] Reduce unmodified terrain triangle cost using projected detail and measured error (default ground fixture: about 2.3 million to 54,000 triangles with biome colours).
 - [ ] Further localize fine terrain around edits and validate total cost with dense excavation.
 - [x] Keep loaded coarse coverage until finer replacements finish; cache useful meshes through camera turns.
 - [ ] Improve first-view coverage when no parent meshes have loaded yet.
@@ -33,9 +33,9 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Flatten native connected lake surfaces, keep river cross-sections level, and provide gradual riverbeds/shore transitions.
 - [ ] Reconcile water heads across tile boundaries and improve river-network classification beyond the local estimated profiles.
 - [x] Preserve full native WorldCover classes, expose source spacing, and refresh validated replacements without losing edited matter.
-- [ ] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.
-- [ ] Improve mountainous fallback terrain without claiming synthetic relief is surveyed geography.
-- [ ] Represent world material/biome states in the engine-derived space view.
+- [x] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.
+- [x] Improve mountainous fallback terrain without claiming synthetic relief is surveyed geography.
+- [x] Represent world material/biome states in the engine-derived space view.
 - [x] Add all 118 elements with missing/predicted metadata and reproducible offline import.
 - [x] Add stoichiometric and mass-mixture composition helpers with validation.
 - [x] Add common geological/volatile families, all 118 elemental placement materials, and searchable editor selection.
@@ -68,3 +68,7 @@ Additional regional surveys can be imported through a common georeferenced raste
 Research and integrate terrain/shape sources for the solid planets and major moons, recording resolution, coverage, vertical reference, and source accuracy. Gas giants need atmospheric/appearance models rather than an invented solid-surface DEM. The initial major-moon set is Earth's Moon; Phobos and Deimos; Io, Europa, Ganymede, Callisto; Mimas, Enceladus, Tethys, Dione, Rhea, Titan, Iapetus (and relevant smaller Saturnian moons); Miranda, Ariel, Umbriel, Titania, Oberon; Triton and the other significant Neptunian moons. Smaller scientifically important bodies can use measured shape models when elevation rasters do not exist.
 
 Each editable body needs an independent integer voxel coordinate grid with barycentric translation and axial orientation applied at the frame boundary. Rotation must move terrain, saved edit surfaces, material queries, lighting, and attached players together without rewriting millimeter edit addresses. Orbital and rotation frame velocities must feed physics; fast moons must not destabilize the planetary integrator or cause uncontrolled time-warp work. These items remain unfinished requirements of the current goal.
+
+## Biome terrain checkpoint
+
+See [landscape generation and texture caching](landscapes.md) for the shared rules, tool, fixed texture-memory cost and limits. Eight new material IDs append without moving existing saved IDs; terrain recipe 7 upgrades earlier recipe metadata without changing stored edit payloads. Ground geometry is 162,777 vertices across 527 patches, and the stronger relief also has matching greedy skirt boundaries. Phase transitions, finer providers, natural density-based excavation, major moons and rotating independent voxel worlds remain unfinished.

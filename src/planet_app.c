@@ -725,14 +725,15 @@ int planet_app_main(int argc, char **argv) {
         if (render_stats && render_stats_elapsed >= .5) {
             const PlanetScene *scene = renderer_planet_scene(renderer);
             printf("Render stats: frame=%u mode=%s visible=%zu pending=%zu triangles=%zu cache=%zu "
-                   "cache_mib=%.2f plans=%llu fallback=%zu\n",
+                   "cache_mib=%.2f plans=%llu fallback=%zu fields=%zu field_uploads=%llu\n",
                    frame,
                    solar_camera.enabled     ? "solar"
                    : resources.texture_only ? "texture"
                                             : "terrain",
                    scene->visible, scene->pending, renderer_vertex_count(renderer) / 3,
                    resources.cached_meshes, resources.cached_mesh_bytes / 1048576.0,
-                   (unsigned long long)scene->planning_count, resources.fallback_meshes);
+                   (unsigned long long)scene->planning_count, resources.fallback_meshes,
+                   resources.terrain_color_fields, (unsigned long long)resources.terrain_color_uploads);
             fflush(stdout);
             render_stats_elapsed = 0;
         }

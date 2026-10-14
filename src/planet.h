@@ -2,6 +2,8 @@
 #define PLANET_H
 #include "detail.h"
 #include "mesh.h"
+#include "landcover.h"
+#include "landscape.h"
 #define EARTH_MASS_KG 5.9722e24
 #define EARTH_A_METERS 6378137.0
 #define EARTH_B_METERS 6356752.314245
@@ -112,6 +114,10 @@ PlanetGeo planet_geographic(const Planet *planet, DVec3 position_m);
 DVec3 planet_from_geographic(const Planet *planet, double latitude_deg, double longitude_deg,
                              double altitude_m);
 double planet_elevation(const Planet *planet, double latitude_deg, double longitude_deg);
+double planet_elevation_state(const Planet *planet, double lat, double lon, LandscapeSample *state);
+uint16_t planet_appearance_material(const Planet *planet, double lat, double lon);
+LandscapeSample planet_landscape_at(const Planet *planet, double lat, double lon, bool detail);
+LandscapeSample planet_overview_landscape(const Planet *planet, double lat, double lon);
 double planet_measured_elevation(const Planet *planet, double latitude_deg, double longitude_deg);
 DVec3 planet_surface_normal(const Planet *planet, DVec3 position_m);
 uint16_t planet_surface_material(double latitude_deg, double longitude_deg, double height_m);
@@ -159,23 +165,10 @@ size_t planet_river_count(const Planet *planet);
 double planet_river_max_width(const Planet *planet);
 size_t planet_terrain_bytes(const Planet *planet);
 const char *planet_detail_directory(const Planet *planet);
-typedef enum {
-    COVER_UNKNOWN = 0,
-    COVER_TREE = 10,
-    COVER_SHRUB = 20,
-    COVER_GRASS = 30,
-    COVER_CROP = 40,
-    COVER_BUILT = 50,
-    COVER_BARE = 60,
-    COVER_SNOW = 70,
-    COVER_WATER = 80,
-    COVER_WETLAND = 90,
-    COVER_MANGROVE = 95,
-    COVER_MOSS = 100
-} LandCover;
 const char *planet_land_cover_name(LandCover cover);
 bool planet_detail_land_cover(const Planet *planet, double lat, double lon, LandCover *cover);
 bool planet_detail_water_mask(const Planet *planet, double lat, double lon, bool *water);
+bool planet_detail_slope(const Planet *planet, double lat, double lon, double *slope);
 bool planet_detail_resolution(const Planet *planet, double lat, double lon, double *pixel_x_m,
                               double *pixel_y_m);
 bool planet_detail_sample(const Planet *planet, double lat, double lon, double *height, bool *water);

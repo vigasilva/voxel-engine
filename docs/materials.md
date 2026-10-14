@@ -11,7 +11,7 @@ Inspect the catalogue offline:
 python3 tools/import_elements.py --check
 ```
 
-`element_get`, `element_by_number`, and `element_find` expose the table. Element enum IDs follow atomic number minus one. Save files continue to store stable material IDs; the original eleven materials retain IDs 0–10. Air now has a dry-air elemental mass recipe. All 178 IDs pass uniform-voxel encode/decode checks with temperatures preserved.
+`element_get`, `element_by_number`, and `element_find` expose the table. Element enum IDs follow atomic number minus one. Save files continue to store stable material IDs; the original eleven materials retain IDs 0–10. Air now has a dry-air elemental mass recipe. All 186 IDs pass uniform-voxel encode/decode checks with temperatures preserved.
 
 `composition.h` provides a practical basis for geological recipes. `composition_from_atoms` converts stoichiometric ratios into elemental mass fractions using the imported atomic masses. `composition_from_fractions` normalizes supplied fractions and merges duplicate elements. `composition_mix` combines valid compositions using mass weights. Recipes hold up to 16 distinct elements and reject invalid/overflowing values or excessive diversity without replacing the caller's previous result.
 
@@ -33,7 +33,7 @@ These helpers preserve mass accounting, but a mixture of H and O does not establ
 
 ![Searchable material catalogue](material-catalogue.png)
 
-There are 60 ordinary presets (including the original eleven) and 118 elemental placement presets. Common geological families include granite, basalt, limestone, sandstone, shale, marble, slate, gneiss, quartzite, peridotite, obsidian, pumice, tuff, gravel, silt, chalk, regolith, peat and mud. Sand presets include quartz-rich, carbonate, red/iron-bearing and volcanic varieties. Mineral endmembers include quartz, calcite, dolomite, potassium feldspar, anorthite plagioclase, forsterite olivine, diopside pyroxene, muscovite mica, kaolinite, gypsum, halite, hematite, magnetite, pyrite and sulfur.
+There are 68 ordinary presets (including the original eleven and eight appended biome materials) and 118 elemental placement presets. Common geological families include granite, basalt, limestone, sandstone, shale, marble, slate, gneiss, quartzite, peridotite, obsidian, pumice, tuff, gravel, silt, chalk, regolith, peat and mud. Sand presets include quartz-rich, carbonate, red/iron-bearing and volcanic varieties. Mineral endmembers include quartz, calcite, dolomite, potassium feldspar, anorthite plagioclase, forsterite olivine, diopside pyroxene, muscovite mica, kaolinite, gypsum, halite, hematite, magnetite, pyrite and sulfur.
 
 These are **representative recipes**, not a claim that every rock or deposit has one universal composition. [USGS rock/mineral definitions](https://www.usgs.gov/faqs/what-difference-between-a-rock-and-a-mineral) explain the distinction between mineral species and rock aggregates. Geological mixtures are encoded as mineral mass weights; selected mineral endmembers are encoded with atom counts. [USGS calcium-bearing mineral examples](https://pubs.usgs.gov/sir/2017/5118/elements/Calcium/Ca_txt.html) describe carbonate/gypsum formulas and their geological setting. `data/materials/recipes.json` is the inspectable source; `tools/import_materials.py` converts its recipes using the imported atomic masses and generates stable C IDs, data and the GLSL palette count together. This pass supplies a useful extensible set, rather than claiming to enumerate every known mineral, isotope or allotrope.
 
@@ -50,7 +50,9 @@ Press **M** in either editor, type a material name/family or element symbol, use
 python3 tools/import_materials.py --check
 ```
 
-The original key shortcuts retain their material mapping; the wheel can traverse the expanded catalogue. New saves containing added IDs need this or a newer engine build. The on-GPU colour palette grows to 178 entries; C and GLSL share the generated count, and the uniform layout is asserted. Terrain atlas material IDs still fit the current byte encoding. New natural mineral/rock presets participate in edit-normal smoothing; metallic/elemental presets retain hard normals.
+The original key shortcuts retain their material mapping; the wheel can traverse the expanded catalogue. New saves containing added IDs need this or a newer engine build. The on-GPU colour palette contains 186 entries; C and GLSL share the generated count, and the uniform layout is asserted. Terrain atlas material IDs still fit the current byte encoding. New natural mineral/rock presets participate in edit-normal smoothing; metallic/elemental presets retain hard normals.
 
 
 Material IDs 60–177 are permanently reserved for the elemental presets. Additional ordinary recipes must append at 178 or later; extending the geological set must never shift elemental IDs already saved in a world. The generator rejects collisions/gaps and `material_recipe_generation` verifies adding a test rock preserves every existing ID and expands the GPU palette count consistently.
+
+Biome materials at IDs 178–185 include forest litter, broadleaf/conifer canopy appearance, dry grass, tundra/scrub soil, wetland cover and cropland soil. Canopy colours represent distant vegetation coverage; the authoritative ground retains its litter/soil layers. See [landscape generation](landscapes.md).

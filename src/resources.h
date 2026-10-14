@@ -12,6 +12,8 @@ typedef struct {
     size_t cached_meshes, cached_mesh_bytes;
     size_t fallback_meshes;
     size_t gpu_staging_bytes;
+    size_t terrain_color_fields;
+    uint64_t terrain_color_uploads;
     double history[RESOURCE_HISTORY], sample_seconds;
     size_t history_next, history_count;
     clock_t previous_cpu;

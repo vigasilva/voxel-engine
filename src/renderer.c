@@ -31,8 +31,14 @@ typedef struct {
     float body_direction_radius[9][4], body_light_distance[9][4], body_color[9][4];
     float material_color[MAT_COUNT][4];
     float planet_axes[4];
+    float patch_material[PLANET_PATCH_LIMIT][4];
 } RenderGlobals;
-_Static_assert(sizeof(RenderGlobals) == 528 + MAT_COUNT * 16, "GLSL std140 globals layout");
+_Static_assert(sizeof(RenderGlobals) == 528 + MAT_COUNT * 16 + PLANET_PATCH_LIMIT * 16,
+               "GLSL std140 globals layout");
+_Static_assert(sizeof(RenderGlobals) <= 16384, "Keep globals within Vulkan's minimum uniform-buffer range");
+#define TERRAIN_ARRAY_LAYERS 256
+#define TERRAIN_ARRAY_COUNT ((PLANET_PATCH_LIMIT + TERRAIN_ARRAY_LAYERS - 1) / TERRAIN_ARRAY_LAYERS)
+_Static_assert(TERRAIN_ARRAY_COUNT == 3, "GLSL has three terrain field samplers");
 struct Renderer {
     SDL_Window *window;
     VkInstance instance;
@@ -76,6 +82,10 @@ struct Renderer {
     VkDeviceMemory albedo_memory;
     VkImageView albedo_view;
     VkSampler albedo_sampler;
+    VkImage terrain_fields[TERRAIN_ARRAY_COUNT];
+    VkDeviceMemory terrain_memory[TERRAIN_ARRAY_COUNT];
+    VkImageView terrain_views[TERRAIN_ARRAY_COUNT];
+    VkSampler terrain_sampler;
     VkDeviceSize texture_allocated;
     bool albedo_loaded, solar_inspection, texture_only;
     GeometryView geometry_view;
@@ -87,6 +97,8 @@ struct Renderer {
     GpuMesh chunks[SCENE_SLOTS], hud;
     GpuMesh mesh_upload;
     size_t upload_used, upload_offset[SCENE_SLOTS], upload_bytes[SCENE_SLOTS];
+    uint64_t color_uploads;
+    size_t color_offset[PLANET_PATCH_LIMIT], color_bytes[PLANET_PATCH_LIMIT];
     Scene scene;
     PlanetScene planet_scene;
     bool planet_mode, planet_targeted, planet_space;
@@ -372,6 +384,80 @@ static bool create_commands(Renderer *r) {
     VK_TRY(vkCreateFence(r->device, &fence, NULL, &r->fence));
     return create_buffer(r, &r->hud, HUD_VERTEX_CAPACITY * sizeof(Vertex));
 }
+static bool create_terrain_fields(Renderer *r) {
+    for (int group = 0; group < TERRAIN_ARRAY_COUNT; group++) {
+        VkImageCreateInfo image = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                                   .imageType = VK_IMAGE_TYPE_2D,
+                                   .format = VK_FORMAT_R8G8B8A8_UNORM,
+                                   .extent = {TERRAIN_FIELD_SIZE, TERRAIN_FIELD_SIZE, 1},
+                                   .mipLevels = TERRAIN_FIELD_LEVELS,
+                                   .arrayLayers = TERRAIN_ARRAY_LAYERS,
+                                   .samples = VK_SAMPLE_COUNT_1_BIT,
+                                   .tiling = VK_IMAGE_TILING_OPTIMAL,
+                                   .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                   .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
+        VK_TRY(vkCreateImage(r->device, &image, NULL, &r->terrain_fields[group]));
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(r->device, r->terrain_fields[group], &req);
+        uint32_t type;
+        if (!memory_type(r, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &type))
+            return false;
+        VkMemoryAllocateInfo allocation = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                                           .allocationSize = req.size,
+                                           .memoryTypeIndex = type};
+        VK_TRY(vkAllocateMemory(r->device, &allocation, NULL, &r->terrain_memory[group]));
+        r->texture_allocated += req.size;
+        VK_TRY(vkBindImageMemory(r->device, r->terrain_fields[group], r->terrain_memory[group], 0));
+        VkImageViewCreateInfo view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                      .image = r->terrain_fields[group],
+                                      .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                      .format = VK_FORMAT_R8G8B8A8_UNORM,
+                                      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, TERRAIN_FIELD_LEVELS,
+                                                           0, TERRAIN_ARRAY_LAYERS}};
+        VK_TRY(vkCreateImageView(r->device, &view, NULL, &r->terrain_views[group]));
+    }
+    VK_TRY(vkResetCommandBuffer(r->command, 0));
+    VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    VK_TRY(vkBeginCommandBuffer(r->command, &begin));
+    for (int group = 0; group < TERRAIN_ARRAY_COUNT; group++) {
+        VkImageMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                                        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                        .image = r->terrain_fields[group],
+                                        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
+                                                             TERRAIN_FIELD_LEVELS, 0, TERRAIN_ARRAY_LAYERS}};
+        vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                             0, NULL, 0, NULL, 1, &barrier);
+        VkClearColorValue clear = {{0, 0, 0, 0}};
+        vkCmdClearColorImage(r->command, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1,
+                             &barrier.subresourceRange);
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+    }
+    VK_TRY(vkEndCommandBuffer(r->command));
+    VkSubmitInfo submit = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &r->command};
+    VK_TRY(vkQueueSubmit(r->queue, 1, &submit, VK_NULL_HANDLE));
+    VK_TRY(vkQueueWaitIdle(r->queue));
+    VkSamplerCreateInfo sampler = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                   .magFilter = VK_FILTER_LINEAR,
+                                   .minFilter = VK_FILTER_LINEAR,
+                                   .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                                   .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                   .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                   .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                   .maxLod = TERRAIN_FIELD_LEVELS - 1};
+    VK_TRY(vkCreateSampler(r->device, &sampler, NULL, &r->terrain_sampler));
+    return true;
+}
 static bool create_assets(Renderer *r) {
     uint32_t width = 1, height = 1;
     unsigned char *rgba = NULL;
@@ -516,9 +602,11 @@ static bool create_assets(Renderer *r) {
                                    .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                                    .maxLod = (float)(levels - 1)};
     VK_TRY(vkCreateSampler(r->device, &sampler, NULL, &r->albedo_sampler));
+    if (!create_terrain_fields(r))
+        return false;
     if (!create_buffer(r, &r->globals_buffer, sizeof(RenderGlobals)))
         return false;
-    VkDescriptorSetLayoutBinding bindings[2] = {{.binding = 0,
+    VkDescriptorSetLayoutBinding bindings[5] = {{.binding = 0,
                                                  .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                                                  .descriptorCount = 1,
                                                  .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT},
@@ -526,12 +614,18 @@ static bool create_assets(Renderer *r) {
                                                  .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                  .descriptorCount = 1,
                                                  .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT}};
+    for (int group = 0; group < TERRAIN_ARRAY_COUNT; group++)
+        bindings[group + 2] =
+            (VkDescriptorSetLayoutBinding){.binding = (uint32_t)(group + 2),
+                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                           .descriptorCount = 1,
+                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT};
     VkDescriptorSetLayoutCreateInfo layout = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                                              .bindingCount = 2,
+                                              .bindingCount = 5,
                                               .pBindings = bindings};
     VK_TRY(vkCreateDescriptorSetLayout(r->device, &layout, NULL, &r->descriptor_layout));
     VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
-                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1}};
+                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4}};
     VkDescriptorPoolCreateInfo pool = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                        .maxSets = 1,
                                        .poolSizeCount = 2,
@@ -545,7 +639,7 @@ static bool create_assets(Renderer *r) {
     VkDescriptorBufferInfo buffer = {r->globals_buffer.buffer, 0, sizeof(RenderGlobals)};
     VkDescriptorImageInfo texture = {r->albedo_sampler, r->albedo_view,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet writes[2] = {{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    VkWriteDescriptorSet writes[5] = {{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                                        .dstSet = r->descriptor,
                                        .dstBinding = 0,
                                        .descriptorCount = 1,
@@ -557,10 +651,25 @@ static bool create_assets(Renderer *r) {
                                        .descriptorCount = 1,
                                        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                        .pImageInfo = &texture}};
-    vkUpdateDescriptorSets(r->device, 2, writes, 0, NULL);
+    VkDescriptorImageInfo fields[TERRAIN_ARRAY_COUNT];
+    for (int group = 0; group < TERRAIN_ARRAY_COUNT; group++) {
+        fields[group] = (VkDescriptorImageInfo){r->terrain_sampler, r->terrain_views[group],
+                                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        writes[group + 2] =
+            (VkWriteDescriptorSet){.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                   .dstSet = r->descriptor,
+                                   .dstBinding = (uint32_t)(group + 2),
+                                   .descriptorCount = 1,
+                                   .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                   .pImageInfo = &fields[group]};
+    }
+    vkUpdateDescriptorSets(r->device, 5, writes, 0, NULL);
     r->water = water_default_optics();
     printf("Engine terrain atlas: %u x %u, %u mip levels, %.1f MiB GPU%s\n", width, height, levels,
-           r->texture_allocated / 1048576.0, r->albedo_loaded ? "" : " / fallback");
+           req.size / 1048576.0, r->albedo_loaded ? "" : " / fallback");
+    printf("Terrain colour cache: %u patch slots, %u x %u, %u mip levels, %.1f MiB GPU capacity\n",
+           PLANET_PATCH_LIMIT, TERRAIN_FIELD_SIZE, TERRAIN_FIELD_SIZE, TERRAIN_FIELD_LEVELS,
+           (r->texture_allocated - req.size) / 1048576.0);
     VkQueryPoolCreateInfo queries = {.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
                                      .queryType = VK_QUERY_TYPE_OCCLUSION,
                                      .queryCount = PLANET_PATCH_LIMIT};
@@ -1010,6 +1119,16 @@ void renderer_destroy(Renderer *r) {
             vkDestroyDescriptorPool(r->device, r->descriptor_pool, NULL);
         if (r->descriptor_layout)
             vkDestroyDescriptorSetLayout(r->device, r->descriptor_layout, NULL);
+        if (r->terrain_sampler)
+            vkDestroySampler(r->device, r->terrain_sampler, NULL);
+        for (int group = 0; group < TERRAIN_ARRAY_COUNT; group++) {
+            if (r->terrain_views[group])
+                vkDestroyImageView(r->device, r->terrain_views[group], NULL);
+            if (r->terrain_fields[group])
+                vkDestroyImage(r->device, r->terrain_fields[group], NULL);
+            if (r->terrain_memory[group])
+                vkFreeMemory(r->device, r->terrain_memory[group], NULL);
+        }
         if (r->albedo_sampler)
             vkDestroySampler(r->device, r->albedo_sampler, NULL);
         if (r->albedo_view)
@@ -1051,6 +1170,9 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
     bool replacing = m->count != 0;
     size_t bytes = mesh->count * sizeof(Vertex);
     r->upload_bytes[slot] = 0;
+    r->color_bytes[slot] = 0;
+    memset(r->globals.patch_material[slot], 0, sizeof(r->globals.patch_material[slot]));
+    size_t colors = mesh->terrain_field ? TERRAIN_FIELD_BYTES : 0;
     if (bytes > m->bytes || bytes < m->bytes / 4 || !bytes) {
         destroy_buffer(r, m);
         if (bytes &&
@@ -1058,7 +1180,7 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
                                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT))
             return false;
     }
-    if (bytes && !reserve_upload(r, bytes))
+    if (bytes + colors && !reserve_upload(r, bytes + colors))
         return false;
     Vertex *v = bytes ? (Vertex *)((char *)r->mesh_upload.mapped + r->upload_used) : NULL;
     if (bytes) {
@@ -1093,6 +1215,14 @@ static bool upload_planet_mesh(Renderer *r, int slot, const Mesh *mesh) {
             left += 3;
     }
     m->solid_count = right;
+    if (colors) {
+        r->color_offset[slot] = r->upload_used;
+        memcpy((char *)r->mesh_upload.mapped + r->upload_used, mesh->terrain_colors, colors);
+        r->color_bytes[slot] = colors;
+        r->upload_used += colors;
+        r->color_uploads++;
+        memcpy(r->globals.patch_material[slot], mesh->terrain_mapping, sizeof(mesh->terrain_mapping));
+    }
     return true;
 }
 static bool same_patch(const PlanetPatch *a, const PlanetPatch *b) {
@@ -1297,12 +1427,12 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         double closest = HUGE_VAL;
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
             PlanetPatch *e = &r->planet_scene.patches[i];
-            if (!e->visible || e->fallback || (e->ready && e->built_river_lod == e->river_lod &&
-                                e->built_terrain_lod == e->terrain_lod &&
-                                e->built_surface_revision == p->surface_revision &&
-                                (!(e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) ||
-                                 e->built_revision == p->revision) &&
-                                (!e->edited || e->built_edit_lod_mm == e->edit_lod_mm)))
+            if (!e->visible || e->fallback ||
+                (e->ready && e->built_river_lod == e->river_lod && e->built_terrain_lod == e->terrain_lod &&
+                 e->built_surface_revision == p->surface_revision &&
+                 (!(e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) ||
+                  e->built_revision == p->revision) &&
+                 (!e->edited || e->built_edit_lod_mm == e->edit_lod_mm)))
                 continue;
             double distance = pd_length(pd_sub(e->center_m, planet_position_m(camera)));
             if (e->edited)
@@ -1442,6 +1572,44 @@ static int compare_draw_order(const void *aa, const void *bb) {
     const DrawOrder *a = aa, *b = bb;
     return a->distance < b->distance ? -1 : a->distance > b->distance ? 1 : 0;
 }
+static void record_terrain_uploads(Renderer *r) {
+    for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++) {
+        if (!r->color_bytes[slot])
+            continue;
+        VkImage image = r->terrain_fields[slot / TERRAIN_ARRAY_LAYERS];
+        uint32_t layer = (uint32_t)(slot % TERRAIN_ARRAY_LAYERS);
+        VkImageMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, TERRAIN_FIELD_LEVELS, layer, 1}};
+        vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+        VkBufferImageCopy copies[TERRAIN_FIELD_LEVELS];
+        size_t offset = r->color_offset[slot];
+        for (uint32_t level = 0, width = TERRAIN_FIELD_SIZE; level < TERRAIN_FIELD_LEVELS;
+             level++, width /= 2) {
+            copies[level] =
+                (VkBufferImageCopy){.bufferOffset = offset,
+                                    .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, layer, 1},
+                                    .imageExtent = {width, width, 1}};
+            offset += (size_t)width * width * 4;
+        }
+        vkCmdCopyBufferToImage(r->command, r->mesh_upload.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               TERRAIN_FIELD_LEVELS, copies);
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+    }
+}
 bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Vertex *hud, size_t hud_count) {
     int w, h;
     SDL_Vulkan_GetDrawableSize(r->window, &w, &h);
@@ -1498,6 +1666,7 @@ bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Ve
         vkCmdPipelineBarrier(r->command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
                              0, 1, &barrier, 0, NULL, 0, NULL);
     }
+    record_terrain_uploads(r);
     vkCmdResetQueryPool(r->command, r->occlusion_pool, 0, PLANET_PATCH_LIMIT);
     VkClearValue clear[2] = {{.color = {{.48f, .67f, .82f, 1}}}, {.depthStencil = {0, 0}}};
     if (r->planet_mode && r->planet_space) {
@@ -1585,7 +1754,7 @@ bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Ve
                 chunk_push.selected[0] = (float)sun.x;
                 chunk_push.selected[1] = (float)sun.y;
                 chunk_push.selected[2] = (float)sun.z;
-                chunk_push.selected[3] = 0;
+                chunk_push.selected[3] = -(float)(i + 1);
                 chunk_push.fine_target[3] = 0;
                 if (r->planet_targeted) {
                     int64_t origin_mm[3] = {chunk_origin.x * 125, chunk_origin.y * 125, chunk_origin.z * 125};
@@ -1638,6 +1807,7 @@ bool renderer_draw(Renderer *r, RenderPush *push, WorldPosition camera, const Ve
                            .pSignalSemaphores = &r->finished[image]};
     VK_TRY(vkQueueSubmit(r->queue, 1, &submit, r->fence));
     memset(r->upload_bytes, 0, sizeof(r->upload_bytes));
+    memset(r->color_bytes, 0, sizeof(r->color_bytes));
     r->upload_used = 0;
     /* Present semaphores are indexed by swapchain image. Reacquisition guarantees safe reuse. */
     VkPresentInfoKHR present = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1737,13 +1907,18 @@ void renderer_resources(const Renderer *r, ResourceStats *stats) {
     stats->occluded_max = r->occluded_max;
     stats->gpu_buffer_bytes = (size_t)r->vertex_allocated;
     stats->gpu_depth_bytes = (size_t)r->depth_allocated;
+    stats->terrain_color_uploads = r->color_uploads;
+    stats->terrain_color_fields = 0;
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        stats->terrain_color_fields += r->chunks[i].count && r->globals.patch_material[i][3] >= 8;
     stats->gpu_texture_bytes = (size_t)r->texture_allocated;
     stats->gpu_staging_bytes = (size_t)r->mesh_upload.allocated;
     stats->cached_meshes = stats->cached_mesh_bytes = 0;
     stats->fallback_meshes = 0;
     if (r->planet_mode)
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
-            if (r->planet_scene.patches[i].visible && r->planet_scene.patches[i].fallback && r->chunks[i].count)
+            if (r->planet_scene.patches[i].visible && r->planet_scene.patches[i].fallback &&
+                r->chunks[i].count)
                 stats->fallback_meshes++;
             if (!r->planet_scene.patches[i].visible && r->chunks[i].memory) {
                 stats->cached_meshes++;

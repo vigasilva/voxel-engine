@@ -1,34 +1,98 @@
 #include "planet.h"
 #include "hydrology.h"
-/* Continuous 3-D noise on the ellipsoid avoids longitude and polar seams.
-   It supplies synthetic local relief, never claimed as measured Earth data. */
-static double fade(double t) {
-    return t * t * t * (t * (t * 6 - 15) + 10);
-}
-static uint32_t hash(uint32_t n) {
-    n ^= n >> 16;
-    n *= 0x7feb352du;
-    n ^= n >> 15;
-    n *= 0x846ca68bu;
-    return n ^ (n >> 16);
-}
-static double noise(DVec3 p, double scale) {
-    double v[3] = {p.x / scale, p.y / scale, p.z / scale}, t[3];
-    int64_t cell[3];
-    for (int a = 0; a < 3; a++) {
-        cell[a] = (int64_t)floor(v[a]);
-        t[a] = fade(v[a] - cell[a]);
+#define PI 3.14159265358979323846
+static void source_geometry(const Planet *p, double lat, double lon, double *spacing, double *slope) {
+    double dx, dy;
+    *slope = 0;
+    if (!isfinite(lat) || !isfinite(lon)) {
+        *spacing = 20000;
+        return;
     }
-    double result = 0;
-    for (int z = 0; z < 2; z++)
-        for (int y = 0; y < 2; y++)
-            for (int x = 0; x < 2; x++) {
-                uint32_t n = hash((uint32_t)(cell[0] + x) * 73856093u ^ (uint32_t)(cell[1] + y) * 19349663u ^
-                                  (uint32_t)(cell[2] + z) * 83492791u ^ 0x45a91e37u);
-                result += (n / 2147483647.5 - 1) * (x ? t[0] : 1 - t[0]) * (y ? t[1] : 1 - t[1]) *
-                          (z ? t[2] : 1 - t[2]);
-            }
-    return result;
+    if (planet_detail_resolution(p, lat, lon, &dx, &dy)) {
+        *spacing = fmax(dx, dy) * EARTH_A_METERS / p->a_m;
+        planet_detail_slope(p, lat, lon, slope);
+        return;
+    }
+    const EarthData *d = p->earth_fine.samples ? &p->earth_fine : &p->earth;
+    double normalized = fmod(lon, 360);
+    if (normalized < 0)
+        normalized += 360;
+    bool region = false;
+    for (size_t i = 0; i < p->region_count; i++) {
+        const EarthData *r = &p->regions[i];
+        double x = (normalized - r->lon0) / r->lon_step, y = (lat - r->lat0) / r->lat_step;
+        if (x >= 24 && y >= 24 && x < r->columns - 25 && y < r->rows - 25) {
+            d = r;
+            region = true;
+            break;
+        }
+    }
+    if (!d->samples || d->columns < 2 || d->rows < 2 || d->lat_step <= 0 || d->lon_step <= 0) {
+        *spacing = 20000;
+        return;
+    }
+    double x = region ? (normalized - d->lon0) / d->lon_step : fmod(lon - d->lon0, 360) / d->lon_step;
+    if (x < 0)
+        x += 360 / d->lon_step;
+    double y = fmax(0, fmin(d->rows - 1, (lat - d->lat0) / d->lat_step));
+    int x0 = (int)floor(x) % d->columns, x1 = (x0 + 1) % d->columns, y0 = (int)floor(y),
+        y1 = y0 + 1 < (int)d->rows ? y0 + 1 : y0;
+    double tx = x - floor(x), ty = y - y0;
+    double a = d->samples[(size_t)y0 * d->columns + x0], b = d->samples[(size_t)y0 * d->columns + x1],
+           c = d->samples[(size_t)y1 * d->columns + x0], e = d->samples[(size_t)y1 * d->columns + x1];
+    dx = d->lon_step * 111319.49079327358 * fmax(.001, fabs(cos(lat * PI / 180)));
+    dy = d->lat_step * 111319.49079327358;
+    *spacing = fmax(dx, dy);
+    *slope = hypot(((b - a) * (1 - ty) + (e - c) * ty) / dx, ((c - a) * (1 - tx) + (e - b) * tx) / dy);
+    *slope *= fmin(1, fmax(0, 90 - fabs(lat))); /* Collapsed polar height ring. */
+}
+static bool water_profile(const Planet *p, double lat, double lon, double measured, bool rivers,
+                          PlanetWaterProfile *out) {
+    if (planet_detail_water(p, lat, lon, out))
+        return true;
+    if (measured < 0) {
+        *out = (PlanetWaterProfile){.wet = true,
+                                    .marine = true,
+                                    .level_m = 0,
+                                    .shore_m = 1e6,
+                                    .depth_m = 2 * p->a_m / EARTH_A_METERS,
+                                    .bank_width_m = 20 * p->a_m / EARTH_A_METERS};
+        return true;
+    }
+    return rivers && planet_river_profile(p, lat, lon, out);
+}
+static LandscapeSample sample_landscape(const Planet *p, double lat, double lon, double measured,
+                                        const PlanetWaterProfile *profile, bool detail) {
+    Planet reference = {.a_m = EARTH_A_METERS, .b_m = EARTH_B_METERS};
+    LandscapeInput input = {.point_m = planet_from_geographic(&reference, lat, lon, 0),
+                            .latitude_deg = lat,
+                            .height_m = measured * EARTH_A_METERS / p->a_m,
+                            .requested = BIOME_AUTO};
+    source_geometry(p, lat, lon, &input.source_spacing_m, &input.slope);
+    planet_detail_land_cover(p, lat, lon, &input.cover);
+    if (profile) {
+        input.wet = profile->wet;
+        input.marine = profile->marine;
+    }
+    LandscapeConfig config = landscape_default();
+    return landscape_sample(&config, input, detail);
+}
+LandscapeSample planet_landscape_at(const Planet *p, double lat, double lon, bool detail) {
+    double h = planet_measured_elevation(p, lat, lon);
+    PlanetWaterProfile profile;
+    bool has = water_profile(p, lat, lon, h, true, &profile);
+    return sample_landscape(p, lat, lon, h, has ? &profile : NULL, detail && p->relief_enabled);
+}
+LandscapeSample planet_overview_landscape(const Planet *p, double lat, double lon) {
+    double h = planet_measured_elevation(p, lat, lon);
+    PlanetWaterProfile profile;
+    /* Global centerline rivers are smaller than an overview texel. Keeping
+       them in local geometry also avoids querying their index for the atlas. */
+    bool has = water_profile(p, lat, lon, h, false, &profile);
+    return sample_landscape(p, lat, lon, h, has ? &profile : NULL, false);
+}
+uint16_t planet_appearance_material(const Planet *p, double lat, double lon) {
+    return planet_overview_landscape(p, lat, lon).appearance_material;
 }
 size_t planet_elevation_bytes(const Planet *p) {
     size_t bytes = planet_terrain_bytes(p) + (size_t)p->earth_fine.rows * p->earth_fine.columns * 2 +
@@ -37,37 +101,28 @@ size_t planet_elevation_bytes(const Planet *p) {
         bytes += (size_t)p->regions[i].rows * p->regions[i].columns * 2;
     return bytes;
 }
-double planet_elevation(const Planet *p, double lat, double lon) {
+double planet_elevation_state(const Planet *p, double lat, double lon, LandscapeSample *state) {
     double h = planet_measured_elevation(p, lat, lon);
-    PlanetWaterProfile profile = {0};
-    bool native_profile = planet_detail_water(p, lat, lon, &profile);
-    bool bank = native_profile ? isfinite(profile.level_m) : planet_river_profile(p, lat, lon, &profile);
+    PlanetWaterProfile profile;
+    bool bank = water_profile(p, lat, lon, h, true, &profile);
     if (bank && profile.wet) {
-        if (profile.marine)
-            return h < 0 ? h : hydrology_bed(h, 0, profile.shore_m, profile.depth_m, profile.bank_width_m);
+        if (state)
+            *state = sample_landscape(p, lat, lon, h, &profile, false);
+        if (profile.marine && h < 0)
+            return h;
         return hydrology_bed(h, profile.level_m, fmax(0, profile.shore_m), profile.depth_m,
                              profile.bank_width_m);
     }
-    bool water;
-    double native;
-    bool measured_detail = planet_detail_sample(p, lat, lon, &native, &water) && isfinite(native);
-    if (!p->relief_enabled || !isfinite(lat) || !isfinite(lon))
-        return bank ? hydrology_bed(h, profile.level_m, fmin(0, profile.shore_m), profile.depth_m,
-                                    profile.bank_width_m)
-                    : h;
-    Planet reference = {.a_m = EARTH_A_METERS, .b_m = EARTH_B_METERS};
-    DVec3 point = planet_from_geographic(&reference, lat, lon, 0);
-    const double scales[] = {1024, 256, 64, 16, 4, 1, .25, .0625};
-    const double amplitudes[] = {12, 4, 1, .18, .035, .012, .004, .001};
-    double relief = 0;
-    for (int i = measured_detail ? 4 : 0; i < 8; i++)
-        relief += noise(point, scales[i]) * amplitudes[i];
-    /* Preserve measured coastlines and the flat ocean surface. */
-    double shore = fmin(1, fabs(h) / (20 * p->a_m / EARTH_A_METERS));
-    h += relief * shore * p->a_m / EARTH_A_METERS;
-    return bank ? hydrology_bed(h, profile.level_m, fmin(0, profile.shore_m), profile.depth_m,
-                                profile.bank_width_m)
-                : h;
+    LandscapeSample sample = sample_landscape(p, lat, lon, h, bank ? &profile : NULL, p->relief_enabled);
+    if (state)
+        *state = sample;
+    h += sample.detail_m * p->a_m / EARTH_A_METERS;
+    return bank && isfinite(profile.level_m) ? hydrology_bed(h, profile.level_m, fmin(0, profile.shore_m),
+                                                             profile.depth_m, profile.bank_width_m)
+                                             : h;
+}
+double planet_elevation(const Planet *p, double lat, double lon) {
+    return planet_elevation_state(p, lat, lon, NULL);
 }
 DVec3 planet_surface_normal(const Planet *p, DVec3 point) {
     PlanetGeo g = planet_geographic(p, point);
@@ -119,9 +174,7 @@ double planet_visible_elevation(const Planet *p, double lat, double lon) {
     return planet_water_elevation(p, lat, lon, &level) ? fmax(level, ground) : ground;
 }
 uint16_t planet_visible_material(const Planet *p, double lat, double lon) {
-    double level;
-    if (planet_water_elevation(p, lat, lon, &level))
-        return MAT_WATER;
-    return planet_surface_material(lat, lon,
-                                   fmax(0, planet_elevation(p, lat, lon) * EARTH_A_METERS / p->a_m));
+    LandscapeSample sample;
+    planet_elevation_state(p, lat, lon, &sample);
+    return sample.surface_material;
 }

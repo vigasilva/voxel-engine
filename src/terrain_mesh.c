@@ -24,6 +24,7 @@ bool mesh_build_terrain_tile(Mesh *m, const World *w, CellCoord origin, int size
     if (!reserve_tile(m, (16 * 16 + 4 * 16) * 6))
         return false;
     m->count = 0;
+    m->terrain_field = false;
     m->unit_faces = 0;
     m->surface_area_mm2 = 0;
     Vec3 p[17][17];

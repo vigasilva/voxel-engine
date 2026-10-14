@@ -282,7 +282,7 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
     char line[160];
     if (performance) {
         float y = 270;
-        rect(h, 18, y, 438, 270, panel);
+        rect(h, 18, y, 438, 288, panel);
         text(h, 34, y + 14, 1, accent, "COMPUTER RESOURCES / F1 TOGGLE");
 
         snprintf(line, sizeof(line), "CPU %.1f%% (100 = ONE CORE) / UPDATE %.2F MS", s->cpu_percent,
@@ -322,6 +322,9 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
         snprintf(line, sizeof(line), "LOD PARENTS %zu / UPLOAD STAGING %.1F MIB", s->fallback_meshes,
                  s->gpu_staging_bytes / 1048576.0);
         text(h, 34, y + 250, 1, muted, line);
+        snprintf(line, sizeof(line), "BIOME TEXTURES %zu / UPLOADS %llu", s->terrain_color_fields,
+                 (unsigned long long)s->terrain_color_uploads);
+        text(h, 34, y + 268, 1, muted, line);
     }
     if (materials) {
         bool compact = height < 750;

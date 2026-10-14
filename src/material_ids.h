@@ -62,6 +62,14 @@ typedef enum {
     MAT_AMMONIA = 57,
     MAT_LAVA = 58,
     MAT_PLAGIOCLASE = 59,
+    MAT_FOREST_LITTER = 178,
+    MAT_FOLIAGE = 179,
+    MAT_CONIFER_FOLIAGE = 180,
+    MAT_DRY_GRASS = 181,
+    MAT_TUNDRA_SOIL = 182,
+    MAT_SCRUB_SOIL = 183,
+    MAT_WETLAND_COVER = 184,
+    MAT_CROP_SOIL = 185,
     MAT_ELEMENT_FIRST = 60,
     MAT_ELEMENT_H = 60,
     MAT_ELEMENT_HE = 61,
@@ -181,6 +189,6 @@ typedef enum {
     MAT_ELEMENT_LV = 175,
     MAT_ELEMENT_TS = 176,
     MAT_ELEMENT_OG = 177,
-    MAT_COUNT = 178
+    MAT_COUNT = 186
 } MaterialId;
 #endif

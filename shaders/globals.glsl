@@ -10,8 +10,46 @@ layout(set=0,binding=0,std140) uniform Globals {
     vec4 bodyColor[9];
     vec4 materialColor[MATERIAL_COUNT];
     vec4 planetAxes;
+    vec4 patchMaterial[768];
 } g;
 layout(set=0,binding=1) uniform sampler2D terrainAtlas;
+layout(set=0,binding=2) uniform sampler2DArray terrainFields0;
+layout(set=0,binding=3) uniform sampler2DArray terrainFields1;
+layout(set=0,binding=4) uniform sampler2DArray terrainFields2;
+// The negative selected.w encodes a cache slot without enlarging push constants.
+vec3 patchColor(int slot, vec3 position, bool materialView, vec3 fallback) {
+    if(slot<0 || slot>=768) return fallback;
+    vec4 mapping=g.patchMaterial[slot];
+    if(mapping.w<7.5) return fallback;
+    int face=int(round(mapping.w))-8;
+    // Project the elevated point back toward the reference ellipsoid normal.
+    // This keeps the cube UV mapping close to the measured ground at elevation.
+    vec3 axes=vec3(g.planetAxes.x,g.planetAxes.x,g.planetAxes.y);
+    vec3 normal=normalize(position/(axes*axes));
+    float radial=1.0/length(normalize(position)/axes);
+    vec3 base=position-normal*(length(position)-radial);
+    vec2 cube;
+    if(face==0) cube=vec2(-base.z,base.y)/base.x;
+    else if(face==1) cube=vec2(base.z,base.y)/(-base.x);
+    else if(face==2) cube=vec2(base.x,-base.z)/base.y;
+    else if(face==3) cube=vec2(base.x,base.z)/(-base.y);
+    else if(face==4) cube=base.xy/base.z;
+    else cube=vec2(-base.x,base.y)/(-base.z);
+    vec2 uv=(cube-mapping.xy)*mapping.z;
+    vec2 dx=dFdx(uv),dy=dFdy(uv);
+    int group=slot/256,layer=slot%256;
+    if(materialView) {
+        ivec3 pixel=ivec3(clamp(uv,vec2(0),vec2(.999999))*256.0,layer);
+        float id;
+        if(group==0) id=texelFetch(terrainFields0,pixel,0).a;
+        else if(group==1) id=texelFetch(terrainFields1,pixel,0).a;
+        else id=texelFetch(terrainFields2,pixel,0).a;
+        return g.materialColor[clamp(int(round(id*255.0)),0,MATERIAL_COUNT-1)].rgb;
+    }
+    if(group==0) return textureGrad(terrainFields0,vec3(uv,layer),dx,dy).rgb;
+    if(group==1) return textureGrad(terrainFields1,vec3(uv,layer),dx,dy).rgb;
+    return textureGrad(terrainFields2,vec3(uv,layer),dx,dy).rgb;
+}
 const float PI=3.14159265358979323846;
 vec2 earthUV(vec3 position) {
     // Ellipsoid surface normal maps geocentric positions to geodetic latitude.

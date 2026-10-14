@@ -119,7 +119,7 @@ bool planet_init(Planet *p, const char *earth_file, const char *save_file, doubl
     const char *names[] = {"colorado", "sydney", "himalaya"};
     const char *slash = strrchr(earth_file, '/');
     size_t prefix = slash ? (size_t)(slash - earth_file + 1) : 0;
-    p->terrain_checksum = p->earth.checksum ^ 0x52454c36u;
+    p->terrain_checksum = p->earth.checksum ^ 0x52454c37u;
     char base[1024], fine[1200];
     if (prefix >= sizeof(base)) {
         planet_destroy(p);
@@ -297,26 +297,35 @@ Voxel planet_base_voxel(const Planet *p, DVec3 position) {
         return (Voxel){r < 3485000 * p->a_m / EARTH_A_METERS ? MAT_IRON : MAT_STONE, 0,
                        (float)fmin(5500, 300 + (small - r) * .001)};
     PlanetGeo g = planet_geographic(p, position);
-    double h = planet_elevation(p, g.latitude_deg, g.longitude_deg), depth = h - g.altitude_m;
+    LandscapeSample state;
+    double h = planet_elevation_state(p, g.latitude_deg, g.longitude_deg, &state), depth = h - g.altitude_m;
     if (depth < 0) {
         double level;
         bool wet = planet_water_elevation(p, g.latitude_deg, g.longitude_deg, &level);
-        return (Voxel){wet && g.altitude_m < level ? MAT_WATER : MAT_AIR, 0, 288.15f};
+        uint16_t water = state.biome == BIOME_OCEAN ? MAT_SALT_WATER : MAT_WATER;
+        return (Voxel){wet && g.altitude_m < level ? water : MAT_AIR, 0, (float)state.temperature_k};
     }
-    uint16_t surface = planet_surface_material(g.latitude_deg, g.longitude_deg, fmax(0, h * EARTH_A_METERS / p->a_m));
-    uint16_t material = depth > 2                                   ? MAT_STONE
-                        : surface == MAT_SAND || surface == MAT_ICE ? surface
-                        : depth > .04                               ? MAT_SOIL
-                                                                    : surface;
-    return (Voxel){material, 0, (float)fmin(5500, 288.15 + fmax(0, depth) * .025)};
+    double scale = p->a_m / EARTH_A_METERS;
+    uint16_t material = depth > 2 * scale     ? state.bedrock_material
+                        : depth > .04 * scale ? state.subsoil_material
+                                              : state.surface_material;
+    if (state.biome == BIOME_OCEAN || state.biome == BIOME_FRESHWATER)
+        material = depth > 2 * scale ? state.bedrock_material : state.subsoil_material;
+    if (state.biome == BIOME_ICE)
+        material = depth > 5 * scale ? state.bedrock_material : depth > .2 * scale ? MAT_ICE : MAT_SNOW;
+    if (state.biome == BIOME_DESERT || state.biome == BIOME_COAST)
+        material = depth > 2 * scale ? state.bedrock_material : state.surface_material;
+    return (Voxel){material, 0, (float)fmin(5500, state.temperature_k + fmax(0, depth) * .025)};
 }
 uint16_t planet_surface_material(double latitude, double longitude, double height) {
-    if (height < 0)
-        return MAT_WATER;
-    if (height > 4500 || fabs(latitude) > 70)
-        return MAT_ICE;
-    if (height < 10 || (fabs(latitude) > 15 && fabs(latitude) < 35 &&
-                        ((longitude > -20 && longitude < 60) || (longitude > 110 && longitude < 150))))
-        return MAT_SAND;
-    return MAT_GRASS;
+    Planet reference = {.a_m = EARTH_A_METERS, .b_m = EARTH_B_METERS};
+    LandscapeInput input = {.point_m = planet_from_geographic(&reference, latitude, longitude, 0),
+                            .latitude_deg = latitude,
+                            .height_m = height,
+                            .source_spacing_m = 20000,
+                            .wet = height < 0,
+                            .marine = height < 0,
+                            .requested = BIOME_AUTO};
+    LandscapeConfig config = landscape_default();
+    return landscape_sample(&config, input, false).surface_material;
 }

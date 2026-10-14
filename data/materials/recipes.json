@@ -1415,6 +1415,190 @@
           "O": 8
         }
       }
+    },
+    {
+      "id": 178,
+      "key": "FOREST_LITTER",
+      "name": "Forest litter",
+      "color": [
+        0.27,
+        0.2,
+        0.12
+      ],
+      "density": 1150,
+      "heat": 1200,
+      "conductivity": 0.25,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "SOIL": 0.7,
+          "WOOD": 0.3
+        }
+      }
+    },
+    {
+      "id": 179,
+      "key": "FOLIAGE",
+      "name": "Foliage",
+      "color": [
+        0.12,
+        0.34,
+        0.09
+      ],
+      "density": 450,
+      "heat": 2200,
+      "conductivity": 0.15,
+      "family": "organic",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "WOOD": 0.7,
+          "WATER": 0.3
+        }
+      }
+    },
+    {
+      "id": 180,
+      "key": "CONIFER_FOLIAGE",
+      "name": "Conifer foliage",
+      "color": [
+        0.1,
+        0.26,
+        0.18
+      ],
+      "density": 500,
+      "heat": 2100,
+      "conductivity": 0.16,
+      "family": "organic",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "WOOD": 0.7,
+          "WATER": 0.3
+        }
+      }
+    },
+    {
+      "id": 181,
+      "key": "DRY_GRASS",
+      "name": "Dry grass soil",
+      "color": [
+        0.57,
+        0.49,
+        0.25
+      ],
+      "density": 1300,
+      "heat": 1000,
+      "conductivity": 0.4,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "SOIL": 0.8,
+          "WOOD": 0.2
+        }
+      }
+    },
+    {
+      "id": 182,
+      "key": "TUNDRA_SOIL",
+      "name": "Tundra soil",
+      "color": [
+        0.39,
+        0.37,
+        0.26
+      ],
+      "density": 1450,
+      "heat": 1100,
+      "conductivity": 0.45,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "SOIL": 0.85,
+          "PEAT": 0.15
+        }
+      }
+    },
+    {
+      "id": 183,
+      "key": "SCRUB_SOIL",
+      "name": "Scrub soil",
+      "color": [
+        0.38,
+        0.4,
+        0.22
+      ],
+      "density": 1400,
+      "heat": 1000,
+      "conductivity": 0.4,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "SOIL": 0.9,
+          "WOOD": 0.1
+        }
+      }
+    },
+    {
+      "id": 184,
+      "key": "WETLAND_COVER",
+      "name": "Wetland vegetation",
+      "color": [
+        0.22,
+        0.39,
+        0.19
+      ],
+      "density": 1600,
+      "heat": 1600,
+      "conductivity": 0.65,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "MUD": 0.7,
+          "WOOD": 0.3
+        }
+      }
+    },
+    {
+      "id": 185,
+      "key": "CROP_SOIL",
+      "name": "Crop soil",
+      "color": [
+        0.4,
+        0.52,
+        0.2
+      ],
+      "density": 1400,
+      "heat": 1000,
+      "conductivity": 0.5,
+      "family": "soil",
+      "phase": "solid",
+      "natural": true,
+      "estimated": true,
+      "recipe": {
+        "mix": {
+          "SOIL": 0.9,
+          "WOOD": 0.1
+        }
+      }
     }
   ]
 }

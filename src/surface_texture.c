@@ -30,7 +30,7 @@ bool planet_surface_texture_bake(const Planet *p, const char *path) {
             size_t at = ((size_t)y * width + x) * 4;
             pixels[at] = (unsigned char)(encoded >> 8);
             pixels[at + 1] = (unsigned char)encoded;
-            pixels[at + 2] = (unsigned char)planet_surface_material(lat, lon, fmax(0, meters));
+            pixels[at + 2] = (unsigned char)planet_appearance_material(p, lat, lon);
             bool water = false;
             planet_detail_sample(p, lat, lon, NULL, &water);
             pixels[at + 3] = water && meters >= 0 ? 255 : 0;

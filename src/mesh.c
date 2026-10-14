@@ -195,6 +195,7 @@ bool mesh_build_chunk(Mesh *m, const World *w, int chunk) {
     if (chunk < 0 || chunk >= CHUNK_COUNT)
         return false;
     m->count = 0;
+    m->terrain_field = false;
     m->unit_faces = 0;
     m->surface_area_mm2 = 0;
     if (w->details[chunk]) {
@@ -319,6 +320,7 @@ bool mesh_build_chunk_lod(Mesh *m, const World *w, int chunk, int lod) {
         (!w->pending[chunk] && !w->details[chunk] && !w->chunks[chunk].detail &&
          !material_get(w->chunks[chunk].value.material)->solid)) {
         m->count = 0;
+        m->terrain_field = false;
         m->unit_faces = 0;
         m->surface_area_mm2 = 0;
         return true;
@@ -333,6 +335,7 @@ bool mesh_build_chunk_lod(Mesh *m, const World *w, int chunk, int lod) {
                                        z * step + step / 2)
                         .material;
     m->count = 0;
+    m->terrain_field = false;
     m->unit_faces = 0;
     m->surface_area_mm2 = 0;
     for (int axis = 0; axis < 3; axis++)
@@ -402,5 +405,6 @@ bool mesh_build_chunk_lod(Mesh *m, const World *w, int chunk, int lod) {
 }
 void mesh_destroy(Mesh *m) {
     free(m->vertices);
+    free(m->terrain_colors);
     *m = (Mesh){0};
 }
