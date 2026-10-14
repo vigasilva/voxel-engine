@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+ELEMENT_FIRST = 60  # Permanent reserved range: elemental IDs 60 through 177.
 LEGACY = ['AIR','SOIL','GRASS','STONE','SAND','IRON','COPPER','WOOD','CLAY','WATER','ICE']
 
 def generate():
@@ -14,8 +15,13 @@ def generate():
     elements = [dict(zip(columns,r['Cell'])) for r in table['Row']]
     masses = {e['Symbol']:float(e['AtomicMass']) for e in elements}
     records = json.loads((ROOT/'data/materials/recipes.json').read_text())['materials']
-    if [r['key'] for r in records[:11]] != LEGACY or any(r['id'] != i for i,r in enumerate(records)):
+    if [r['key'] for r in records[:11]] != LEGACY or any(r['id'] != i for i,r in enumerate(records[:11])):
         raise ValueError('Material IDs/legacy order differ')
+    if len(elements) != 118 or [int(e['AtomicNumber']) for e in elements] != list(range(1,119)):
+        raise ValueError('Invalid element identity order')
+    saved_ids = [r['id'] for r in records] + list(range(ELEMENT_FIRST,ELEMENT_FIRST+118))
+    if len(set(saved_ids)) != len(saved_ids) or sorted(saved_ids) != list(range(len(saved_ids))):
+        raise ValueError('Material IDs must be unique and append after the reserved elemental range')
     index={r['key']:r for r in records}
     if len(index)!=len(records): raise ValueError('Duplicate recipe key')
     cache={}
@@ -62,7 +68,7 @@ def generate():
         pure='E_FE' if key=='IRON' else 'E_CU' if key=='COPPER' else '-1'
         entries.append(entry(key,record['name'],record['color'],record['density'],record['heat'],
             record['conductivity'],record['family'],record['phase'],record['natural'],record['estimated'],recipe(key),pure))
-    first=len(records)
+    first=ELEMENT_FIRST
     ids.append(f'    MAT_ELEMENT_FIRST = {first},')
     for i,e in enumerate(elements):
         symbol=e['Symbol']; key='ELEMENT_'+symbol.upper()
@@ -75,7 +81,7 @@ def generate():
         phase=e['StandardState'].split()[-1].lower()
         entries.append(entry(key,e['Name']+' (element)',color,density,heat,conduct,'element',phase,
                              False,False,{symbol:1},'E_'+symbol.upper()))
-    count=first+len(elements)
+    count=len(saved_ids)
     if count>256: raise ValueError('PTEX palette uses byte IDs; widen before exceeding 256')
     ids += [f'    MAT_COUNT = {count}','} MaterialId;','#endif','']
     return {'src/material_ids.h':'\n'.join(ids), 'src/materials.inc':'\n'.join(entries)+'\n',

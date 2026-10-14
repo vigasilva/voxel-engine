@@ -51,3 +51,6 @@ python3 tools/import_materials.py --check
 ```
 
 The original key shortcuts retain their material mapping; the wheel can traverse the expanded catalogue. New saves containing added IDs need this or a newer engine build. The on-GPU colour palette grows to 178 entries; C and GLSL share the generated count, and the uniform layout is asserted. Terrain atlas material IDs still fit the current byte encoding. New natural mineral/rock presets participate in edit-normal smoothing; metallic/elemental presets retain hard normals.
+
+
+Material IDs 60–177 are permanently reserved for the elemental presets. Additional ordinary recipes must append at 178 or later; extending the geological set must never shift elemental IDs already saved in a world. The generator rejects collisions/gaps and `material_recipe_generation` verifies adding a test rock preserves every existing ID and expands the GPU palette count consistently.

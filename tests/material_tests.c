@@ -59,7 +59,7 @@ int main(void) {
         CHECK(material_composition((uint16_t)id, &mixed) && composition_valid(&mixed));
     CHECK(!material_composition(MAT_COUNT, &mixed));
     CHECK(MAT_AIR == 0 && MAT_COPPER == 6 && MAT_WATER == 9 && MAT_ICE == 10);
-    CHECK(MAT_COUNT == MAT_ELEMENT_FIRST + E_COUNT);
+    CHECK(MAT_COUNT >= MAT_ELEMENT_FIRST + E_COUNT);
     for (int id = 0; id < MAT_COUNT; id++) {
         CHECK(material_composition((uint16_t)id, &mixed) && composition_valid(&mixed));
         Voxel value = {(uint16_t)id, 0, 137.25f};

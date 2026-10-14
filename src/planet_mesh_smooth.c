@@ -15,7 +15,14 @@ static int compare(const void *aa, const void *bb) {
     return 0;
 }
 static bool natural(Vec3 color) {
-    for (uint16_t id = 1; id < MAT_ELEMENT_FIRST; id++) {
+    for (uint16_t id = 1; id < MAT_COUNT; id++) {
+        /* Element presets use hard normals. Skip their reserved range while
+           allowing newly appended natural presets to participate. */
+        if (id == MAT_ELEMENT_FIRST) {
+            id += E_COUNT;
+            if (id >= MAT_COUNT)
+                break;
+        }
         const Material *m = material_get(id);
         if (m->natural_surface && color.x == m->color[0] && color.y == m->color[1] && color.z == m->color[2])
             return true;
