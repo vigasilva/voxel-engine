@@ -119,7 +119,7 @@ bool planet_init(Planet *p, const char *earth_file, const char *save_file, doubl
     const char *names[] = {"colorado", "sydney", "himalaya"};
     const char *slash = strrchr(earth_file, '/');
     size_t prefix = slash ? (size_t)(slash - earth_file + 1) : 0;
-    p->terrain_checksum = p->earth.checksum ^ 0x52454c35u;
+    p->terrain_checksum = p->earth.checksum ^ 0x52454c36u;
     char base[1024], fine[1200];
     if (prefix >= sizeof(base)) {
         planet_destroy(p);
@@ -197,9 +197,17 @@ double planet_measured_elevation(const Planet *p, double lat, double lon) {
     double base = global_elevation(p, lat, lon);
     double detail;
     bool water;
-    if (planet_detail_sample(p, lat, lon, &detail, &water) && isfinite(detail) &&
-        !(water && detail <= .01 && base < 0))
-        return detail;
+    if (planet_detail_sample(p, lat, lon, &detail, &water) && isfinite(detail)) {
+        bool preserve_bathymetry = false;
+        if (base < 0 && detail <= .01) {
+            PlanetWaterProfile profile;
+            preserve_bathymetry = water && planet_detail_water(p, lat, lon, &profile) && profile.marine;
+            /* Unclassified zero-height sea pixels do not establish dry land. */
+            preserve_bathymetry |= fabs(detail) <= .01 && !planet_detail_water_mask(p, lat, lon, NULL);
+        }
+        if (!preserve_bathymetry)
+            return detail;
+    }
     if (!isfinite(lat) || !isfinite(lon))
         return base;
     lon = fmod(lon, 360);

@@ -16,9 +16,10 @@
 #define BINS (360 * 180)
 typedef struct {
     char name[256];
+    unsigned char header[64];
     unsigned char *data;
     size_t bytes;
-    uint32_t nx, ny, wx, wy;
+    uint32_t nx, ny, wx, wy, version;
     double lon0, lat0, dx, dy;
     int lat_key, lon_key;
     Hydrology hydrology;
@@ -94,6 +95,7 @@ static bool load_map(DetailMap *m, const char *path) {
     if (!data)
         return false;
     *m = (DetailMap){.data = data, .bytes = bytes};
+    m->version = get32(data + 4);
     m->nx = get32(data + 8);
     m->ny = get32(data + 12);
     m->wx = get32(data + 16);
@@ -103,18 +105,31 @@ static bool load_map(DetailMap *m, const char *path) {
     m->dx = get64(data + 40);
     m->dy = get64(data + 48);
     uint64_t expected = 64 + (uint64_t)m->nx * m->ny * 4 + (uint64_t)m->wx * m->wy;
-    bool ok = !memcmp(data, "PDEM", 4) && get32(data + 4) == 1 && get32(data + 60) == 0 &&
+    bool ok = !memcmp(data, "PDEM", 4) && (m->version == 1 || m->version == 2) && get32(data + 60) == 0 &&
               expected == bytes && m->nx >= 2 && m->ny >= 2 && m->wx >= 2 && m->wy >= 2 && m->nx <= 20000 &&
               m->ny <= 20000 && isfinite(m->lat0) && isfinite(m->lon0) && isfinite(m->dx) &&
               isfinite(m->dy) && m->lat0 >= -90 && m->lon0 >= -180 && m->dx > 0 && m->dy > 0 &&
               m->dx <= .001 && m->dy <= .001 && m->lat0 + (m->ny - 1) * m->dy <= 90 &&
               m->lon0 + (m->nx - 1) * m->dx <= 180 &&
               crc32(0, data + 64, (uInt)(bytes - 64)) == get32(data + 56);
+    if (ok) {
+        const unsigned char *cover = data + 64 + (size_t)m->nx * m->ny * 4;
+        for (size_t i = 0; i < (size_t)m->wx * m->wy; i++) {
+            unsigned c = cover[i];
+            if (m->version == 1 ? c > 1
+                                : c != 0 && c != 10 && c != 20 && c != 30 && c != 40 && c != 50 && c != 60 &&
+                                      c != 70 && c != 80 && c != 90 && c != 95 && c != 100) {
+                ok = false;
+                break;
+            }
+        }
+    }
     if (!ok) {
         unmap(m);
         *m = (DetailMap){0};
         return false;
     }
+    memcpy(m->header, data, 64);
 #ifdef __unix__
     madvise(data, bytes, MADV_RANDOM);
     /* CRC validation touches the whole file; release these initial page mappings. */
@@ -172,19 +187,41 @@ size_t planet_detail_refresh(Planet *p) {
         size_t n = strlen(entry->d_name);
         if (n < 6 || n >= 256 || strcmp(entry->d_name + n - 5, ".pdem"))
             continue;
-        bool known = false;
+        size_t known = SIZE_MAX;
         for (size_t i = 0; i < t->count; i++)
             if (!strcmp(t->maps[i].name, entry->d_name)) {
-                known = true;
+                known = i;
                 break;
             }
-        if (known)
-            continue;
         char path[1400];
         snprintf(path, sizeof(path), "%s/%s", t->directory, entry->d_name);
+        if (known != SIZE_MAX) {
+            unsigned char header[64];
+            FILE *f = fopen(path, "rb");
+            bool changed = f && fread(header, 1, 64, f) == 64 && memcmp(header, t->maps[known].header, 64);
+            if (f)
+                fclose(f);
+            if (!changed)
+                continue;
+        }
         DetailMap m;
         if (!load_map(&m, path))
             continue;
+        snprintf(m.name, sizeof(m.name), "%s", entry->d_name);
+        if (known != SIZE_MAX) {
+            DetailMap *old = &t->maps[known];
+            size_t profile_bytes =
+                !old->hydrology.body_ids ? 0
+                : old->hydrology.storage_bytes
+                    ? old->hydrology.storage_bytes
+                    : (size_t)old->wx * old->wy * 8 + old->hydrology.body_capacity * sizeof(HydroBody);
+            t->bytes -= old->bytes + profile_bytes;
+            unmap(old);
+            *old = m;
+            t->bytes += m.bytes;
+            added++;
+            continue;
+        }
         if (t->count == t->capacity) {
             size_t capacity = t->capacity ? t->capacity * 2 : 8;
             DetailMap *maps = realloc(t->maps, capacity * sizeof(*maps));
@@ -195,7 +232,6 @@ size_t planet_detail_refresh(Planet *p) {
             t->maps = maps;
             t->capacity = capacity;
         }
-        snprintf(m.name, sizeof(m.name), "%s", entry->d_name);
         t->maps[t->count++] = m;
         t->bytes += m.bytes;
         added++;
@@ -262,7 +298,73 @@ bool planet_detail_sample(const Planet *p, double lat, double lon, double *heigh
         *height = detail_height(m, x, y) * p->a_m / EARTH_A_METERS;
     water_coordinates(m, &x, &y);
     if (water)
-        *water = water_mask(m)[water_index(m, x, y)] == 1;
+        *water = water_mask(m)[water_index(m, x, y)] == (m->version == 1 ? 1 : COVER_WATER);
+    return true;
+}
+const char *planet_land_cover_name(LandCover cover) {
+    switch (cover) {
+    case COVER_TREE:
+        return "tree cover";
+    case COVER_SHRUB:
+        return "shrubland";
+    case COVER_GRASS:
+        return "grassland";
+    case COVER_CROP:
+        return "cropland";
+    case COVER_BUILT:
+        return "built-up";
+    case COVER_BARE:
+        return "bare/sparse vegetation";
+    case COVER_SNOW:
+        return "snow/ice";
+    case COVER_WATER:
+        return "permanent water";
+    case COVER_WETLAND:
+        return "herbaceous wetland";
+    case COVER_MANGROVE:
+        return "mangroves";
+    case COVER_MOSS:
+        return "moss/lichen";
+    default:
+        return "unknown";
+    }
+}
+bool planet_detail_land_cover(const Planet *p, double lat, double lon, LandCover *cover) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    water_coordinates(m, &x, &y);
+    unsigned c = water_mask(m)[water_index(m, x, y)];
+    if (m->version == 1)
+        c = c == 1 ? COVER_WATER : COVER_UNKNOWN;
+    if (cover)
+        *cover = (LandCover)c;
+    return c != COVER_UNKNOWN;
+}
+bool planet_detail_water_mask(const Planet *p, double lat, double lon, bool *water) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    water_coordinates(m, &x, &y);
+    unsigned c = water_mask(m)[water_index(m, x, y)];
+    if (m->version == 2 && !c)
+        return false;
+    if (water)
+        *water = c == (m->version == 1 ? 1 : COVER_WATER);
+    return true;
+}
+bool planet_detail_resolution(const Planet *p, double lat, double lon, double *dx, double *dy) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m || !isfinite(detail_height(m, x, y)))
+        return false;
+    double scale = p->a_m / EARTH_A_METERS * 111319.49079327358;
+    if (dx)
+        *dx = m->dx * scale * fabs(cos(lat * PI / 180));
+    if (dy)
+        *dy = m->dy * scale;
     return true;
 }
 static bool prepare_hydrology(PlanetTerrainData *t, DetailMap *m) {
@@ -284,7 +386,20 @@ static bool prepare_hydrology(PlanetTerrainData *t, DetailMap *m) {
         double dx = m->dx * m->nx / m->wx * 111319.49079327358 *
                     fmax(.001, cos((m->lat0 + m->ny * m->dy * .5) * PI / 180)),
                dy = m->dy * m->ny / m->wy * 111319.49079327358;
-        bool ok = hydrology_build(&m->hydrology, elevation, water_mask(m), m->wx, m->wy, dx, dy);
+        uint8_t *mask = NULL;
+        const uint8_t *water = water_mask(m);
+        if (m->version == 2) {
+            mask = malloc(count);
+            if (!mask) {
+                free(elevation);
+                return false;
+            }
+            for (size_t i = 0; i < count; i++)
+                mask[i] = water[i] == COVER_WATER;
+            water = mask;
+        }
+        bool ok = hydrology_build(&m->hydrology, elevation, water, m->wx, m->wy, dx, dy);
+        free(mask);
         free(elevation);
         if (!ok)
             return false;
@@ -308,13 +423,15 @@ bool planet_detail_water(const Planet *p, double lat, double lon, PlanetWaterPro
         return false;
     double native = detail_height(m, x, y);
     water_coordinates(m, &x, &y);
-    bool wet = water_mask(m)[water_index(m, x, y)] == 1;
+    if (m->version == 2 && !water_mask(m)[water_index(m, x, y)])
+        return false; /* Unclassified data is not proof of dry land. */
+    bool wet = water_mask(m)[water_index(m, x, y)] == (m->version == 1 ? 1 : COVER_WATER);
     *profile = (PlanetWaterProfile){.wet = wet, .level_m = NAN, .shore_m = -1e6};
     /* Dry queries far from a shore need neither a water cache nor a build. */
     bool nearby = wet || m->hydrology.body_ids;
     for (int ky = -3; !nearby && ky <= 3; ky++)
         for (int kx = -3; !nearby && kx <= 3; kx++)
-            nearby = water_mask(m)[water_index(m, x + kx, y + ky)] == 1;
+            nearby = water_mask(m)[water_index(m, x + kx, y + ky)] == (m->version == 1 ? 1 : COVER_WATER);
     if (!nearby)
         return true;
     double level = NAN, shore = -1e6;

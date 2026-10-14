@@ -820,6 +820,12 @@ static void test_atomic_edits(void) {
     CHECK(planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
     CHECK(planet_saved_chunks(&p) == 8 && planet_voxel(&p, edge, 0, 0).temperature_k == 400);
     planet_destroy(&p);
+    CHECK(sqlite3_open(file, &db) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "UPDATE terrain_config SET version=5,checksum=0", NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(db);
+    CHECK(planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    CHECK(planet_saved_chunks(&p) == 8 && planet_voxel(&p, edge, 0, 0).temperature_k == 400);
+    planet_destroy(&p);
     CHECK(!planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG * 2, EARTH_A_METERS, EARTH_B_METERS));
     planet_destroy(&p);
     CHECK(sqlite3_open(file, &db) == SQLITE_OK);

@@ -10,7 +10,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Greedy meshing | Merges terrain rectangles within an error tolerance and equal-material edit faces. Shared terrain edges and skirts retain matching vertices. Terrain sampling/merging now use quantized screen-space error. | Further localize fine clipping around edits and control total rendering cost. |
 | Dynamic LOD | A spherical quadtree selects visible patches; distant Earth uses an engine-generated texture and analytic ellipsoid. Invisible meshes remain cached by slot/memory pressure. Loaded coarse parents now own their coverage until replacement regions finish, with child promotion after completion. | Cold views without loaded parents still stream progressively; bootstrap coverage and edit-heavy cases need further work. |
 | Occlusion culling | Vulkan bounding-box queries skip hidden patches when the camera and contributing geometry are unchanged. | Moving the camera invalidates results conservatively. Validate interactions with retained replacement coverage and expose its cost. |
-| Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover water masks, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
+| Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover land-cover/water classes, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
 | Procedural terrain | Deterministic small-scale noise supplements measured heights; fallback areas receive larger noise octaves. | This is not yet a biome-aware landscape generator or a model of mountain erosion. |
 | Distant textures | Bakes engine heights, material IDs, and inland-water classification; no photographic Earth imagery. | Current material classification is too simple for a realistic global biome appearance. |
 | Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
@@ -32,6 +32,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [ ] Validate occlusion with the revised rendering/cache lifecycle.
 - [x] Flatten native connected lake surfaces, keep river cross-sections level, and provide gradual riverbeds/shore transitions.
 - [ ] Reconcile water heads across tile boundaries and improve river-network classification beyond the local estimated profiles.
+- [x] Preserve full native WorldCover classes, expose source spacing, and refresh validated replacements without losing edited matter.
 - [ ] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.
 - [ ] Improve mountainous fallback terrain without claiming synthetic relief is surveyed geography.
 - [ ] Represent world material/biome states in the engine-derived space view.
@@ -54,7 +55,7 @@ The engine must select sources by coverage, sampling resolution, vertical datum,
 | --- | --- | --- |
 | [NOAA ETOPO](https://www.ncei.noaa.gov/products/etopo-global-relief-model) | Global relief and bathymetry fallback | Included, with decimated global and native regional samples. |
 | [Copernicus GLO-30](https://registry.opendata.aws/copernicus-dem/) | Broad 30 m surface-height coverage | Existing on-demand importer. |
-| [ESA WorldCover](https://esa-worldcover.org/en/about/about) | Land-cover classes and permanent water | Existing importer retains only its water classification; full class support is pending. |
+| [ESA WorldCover](https://esa-worldcover.org/en/about/about) | Land-cover classes and permanent water | Fresh importer retains all eleven classes in PDEM v2, with old binary-water packs still supported. The default starter crop is upgraded; wider cache upgrades/biome use remain pending. |
 | [USGS 3DEP](https://www.usgs.gov/faqs/what-coverage-3d-elevation-program-3dep-dems) | Finer US terrain where products are available | Provider selection/import pending; coverage must be queried. |
 | [PGC polar elevation products](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/) | Finer Arctic/Antarctic surface models | Access, datum, coverage, and product-specific terms must be checked before enabling a provider. |
 | [IUPAC periodic table](https://iupac.org/what-we-do/periodic-table-of-elements/) | Element identity and atomic-weight provenance | Full identity/reference data and composition catalogue included; thermal simulation remains pending. |

@@ -213,7 +213,7 @@ bool planet_store_open(Planet *p, const char *file) {
     if (!sql(p, "CREATE TABLE IF NOT EXISTS terrain_config(id INTEGER PRIMARY KEY CHECK(id=1),"
                 "version INTEGER,checksum INTEGER);"))
         return false;
-    if (sqlite3_prepare_v2(p->store->db, "INSERT OR IGNORE INTO terrain_config VALUES(1,5,?)", -1, &s,
+    if (sqlite3_prepare_v2(p->store->db, "INSERT OR IGNORE INTO terrain_config VALUES(1,6,?)", -1, &s,
                            NULL) != SQLITE_OK)
         return error(p, "Cannot bind terrain data");
     sqlite3_bind_int64(s, 1, p->terrain_checksum);
@@ -223,7 +223,7 @@ bool planet_store_open(Planet *p, const char *file) {
     if (ok) {
         ok = sqlite3_prepare_v2(
                  p->store->db,
-                 "UPDATE terrain_config SET version=5,checksum=? WHERE id=1 AND version IN (2,3,4)", -1, &s,
+                 "UPDATE terrain_config SET version=6,checksum=? WHERE id=1 AND version IN (2,3,4,5)", -1, &s,
                  NULL) == SQLITE_OK;
         if (ok) {
             sqlite3_bind_int64(s, 1, p->terrain_checksum);
@@ -236,7 +236,7 @@ bool planet_store_open(Planet *p, const char *file) {
         ok = sqlite3_prepare_v2(p->store->db, "SELECT version,checksum FROM terrain_config WHERE id=1", -1,
                                 &s, NULL) == SQLITE_OK;
     if (ok)
-        ok = sqlite3_step(s) == SQLITE_ROW && sqlite3_column_int(s, 0) == 5 &&
+        ok = sqlite3_step(s) == SQLITE_ROW && sqlite3_column_int(s, 0) == 6 &&
              (uint32_t)sqlite3_column_int64(s, 1) == p->terrain_checksum;
     sqlite3_finalize(s);
     s = NULL;

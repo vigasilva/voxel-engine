@@ -159,6 +159,25 @@ size_t planet_river_count(const Planet *planet);
 double planet_river_max_width(const Planet *planet);
 size_t planet_terrain_bytes(const Planet *planet);
 const char *planet_detail_directory(const Planet *planet);
+typedef enum {
+    COVER_UNKNOWN = 0,
+    COVER_TREE = 10,
+    COVER_SHRUB = 20,
+    COVER_GRASS = 30,
+    COVER_CROP = 40,
+    COVER_BUILT = 50,
+    COVER_BARE = 60,
+    COVER_SNOW = 70,
+    COVER_WATER = 80,
+    COVER_WETLAND = 90,
+    COVER_MANGROVE = 95,
+    COVER_MOSS = 100
+} LandCover;
+const char *planet_land_cover_name(LandCover cover);
+bool planet_detail_land_cover(const Planet *planet, double lat, double lon, LandCover *cover);
+bool planet_detail_water_mask(const Planet *planet, double lat, double lon, bool *water);
+bool planet_detail_resolution(const Planet *planet, double lat, double lon, double *pixel_x_m,
+                              double *pixel_y_m);
 bool planet_detail_sample(const Planet *planet, double lat, double lon, double *height, bool *water);
 bool planet_river_sample(const Planet *planet, double lat, double lon, double *center_lat, double *center_lon,
                          double *depth);

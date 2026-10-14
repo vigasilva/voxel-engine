@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch local Copernicus GLO-30 heights and ESA WorldCover 2021 water via COG ranges.
+"""Fetch local Copernicus GLO-30 heights and ESA WorldCover 2021 land cover via COG ranges.
 Requires GDAL command-line tools and numpy; the engine reads the resulting PDEM offline.
 """
 import argparse
@@ -23,7 +23,7 @@ def run(*args):
 def axis(n, positive, negative, digits):
     return f'{positive if n >= 0 else negative}{abs(n):0{digits}d}'
 
-def fetch(lat, lon, output):
+def fetch(lat, lon, output, upgrade_cover=False):
     if not (-85 <= lat <= 85 and -179.9 <= lon < 179.9):
         raise ValueError('Detail latitude/longitude outside supported source range')
     # 0.1-degree cache cells with a 60 m height halo. Consistent pixel centers
@@ -38,9 +38,12 @@ def fetch(lat, lon, output):
         if len(cached) >= 64:
             h = struct.unpack_from('<4s5I4dII', cached)
             expected = 64 + h[2] * h[3] * 4 + h[4] * h[5]
-            if h[0] == b'PDEM' and h[1] == 1 and expected == len(cached) and zlib.crc32(cached[64:]) == h[10]:
-                return target
-        print(f'Replacing invalid cached terrain: {target}', flush=True)
+            if h[0] == b'PDEM' and h[1] in (1, 2) and expected == len(cached) and zlib.crc32(cached[64:]) == h[10]:
+                labels = np.frombuffer(cached, dtype='u1', offset=64 + h[2] * h[3] * 4)
+                classes = [0, 1] if h[1] == 1 else [0,10,20,30,40,50,60,70,80,90,95,100]
+                if np.isin(labels, classes).all() and (h[1] == 2 or not upgrade_cover):
+                    return target
+        print(f'Upgrading/replacing cached terrain: {target}', flush=True)
     halo = 2 / 3600
     bounds = (west - halo, south - halo, east + halo, north + halo)
     with tempfile.TemporaryDirectory(prefix='earth-detail-') as tmp:
@@ -75,18 +78,20 @@ def fetch(lat, lon, output):
         if not valid.any():
             raise ValueError('No public Copernicus DEM coverage at requested location')
         quantized = np.where(valid, np.rint(heights * 100), -2147483648).astype('<i4')
-        water = (cover == 80).astype('u1')
-        payload = quantized.tobytes() + water.tobytes()
+        allowed = np.isin(cover, [0,10,20,30,40,50,60,70,80,90,95,100])
+        if not allowed.all():
+            raise ValueError('Invalid WorldCover class in cropped data')
+        payload = quantized.tobytes() + cover.tobytes()
         ny, nx = heights.shape
-        wy, wx = water.shape
-        header = struct.pack('<4s5I4dII', b'PDEM',1,nx,ny,wx,wy,
+        wy, wx = cover.shape
+        header = struct.pack('<4s5I4dII', b'PDEM',2,nx,ny,wx,wy,
                              transform[0] + transform[1]/2,
                              transform[3] + transform[5]*(ny-.5), transform[1], -transform[5],
                              zlib.crc32(payload),0)
         temporary = target.with_suffix('.tmp')
         temporary.write_bytes(header + payload)
         temporary.replace(target)
-        print(f'{target}: {nx}x{ny} GLO-30 heights, {wx}x{wy} WorldCover water; {int(water.sum())} water pixels',flush=True)
+        print(f'{target}: {nx}x{ny} GLO-30 heights, {wx}x{wy} WorldCover classes; {int((cover == 80).sum())} water pixels',flush=True)
     return target
 
 def main():
@@ -94,8 +99,9 @@ def main():
     p.add_argument('--lat', type=float, required=True)
     p.add_argument('--lon', type=float, required=True)
     p.add_argument('--output', type=Path, default=Path('data/earth_detail'))
+    p.add_argument('--upgrade-cover', action='store_true', help='replace an existing v1 mask with complete land-cover classes')
     args = p.parse_args()
-    fetch(args.lat,args.lon,args.output)
+    fetch(args.lat,args.lon,args.output,args.upgrade_cover)
 
 if __name__ == '__main__':
     main()

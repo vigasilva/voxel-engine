@@ -417,7 +417,7 @@ static bool river_mesh(Mesh *mesh, Planet *p, const PlanetPatch *patch, const Ed
                 height[end] = fmax(0, planet_measured_elevation(p, lat[end], lon[end]));
             }
             /* Precise satellite masks own coverage inside downloaded detail cells. */
-            if (planet_detail_sample(p, (lat[0] + lat[1]) * .5, (lon[0] + lon[1]) * .5, NULL, NULL))
+            if (planet_detail_water_mask(p, (lat[0] + lat[1]) * .5, (lon[0] + lon[1]) * .5, NULL))
                 continue;
             Polygon poly = {.count = 4, .color = color(MAT_WATER)};
             DVec3 up = planet_up(p, a);

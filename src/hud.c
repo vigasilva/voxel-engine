@@ -250,7 +250,16 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
         snprintf(line, sizeof(line), "%s / PRESET %s", material_family_name(mat->family),
                  phase_name(mat->reference_phase));
         text(h, px + 16, 178, 1, accent, line);
-        text(h, px + 16, 196, 1, muted, "M MATERIAL CATALOGUE / F2 SUN");
+        PlanetGeo source_geo = planet_geographic(
+            p, dv3((hit.mm[0] + .5) * .001, (hit.mm[1] + .5) * .001, (hit.mm[2] + .5) * .001));
+        LandCover cover;
+        double dx, dy;
+        if (planet_detail_land_cover(p, source_geo.latitude_deg, source_geo.longitude_deg, &cover) &&
+            planet_detail_resolution(p, source_geo.latitude_deg, source_geo.longitude_deg, &dx, &dy))
+            snprintf(line, sizeof(line), "DEM %.0F X %.0F M / %.21s", dx, dy, planet_land_cover_name(cover));
+        else
+            snprintf(line, sizeof(line), "M MATERIAL CATALOGUE / F2 SUN");
+        text(h, px + 16, 196, 1, muted, line);
     } else
         text(h, px + 16, 56, 1, muted, "POINT AT THE SURFACE TO EDIT");
     rect(h, width * .5f - 232, height - 70, 464, 52, panel);
