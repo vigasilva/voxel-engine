@@ -89,7 +89,63 @@ typedef struct {
     PlanetScene *scene;
     PlanetPatch patches[PLANET_PATCH_LIMIT];
     size_t count;
+    int cached[PLANET_PATCH_LIMIT];
+    bool fallback[PLANET_PATCH_LIMIT];
 } PatchPlan;
+static bool contains_patch(const PlanetPatch *parent, const PlanetPatch *child) {
+    if (parent->edited || child->edited || parent->face != child->face || parent->level >= child->level)
+        return false;
+    int shift = child->level - parent->level;
+    return parent->x == (child->x >> shift) && parent->y == (child->y >> shift);
+}
+static bool retain_parents(PatchPlan *plan, const Planet *p) {
+    PlanetScene *s = plan->scene;
+    bool wanted[PLANET_PATCH_LIMIT] = {false};
+    memset(plan->fallback, 0, sizeof(plan->fallback));
+    for (size_t i = 0; i < plan->count; i++) {
+        plan->cached[i] = -1;
+        for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++)
+            if (s->patches[slot].span_m && key_equal(&s->patches[slot], &plan->patches[i])) {
+                plan->cached[i] = slot;
+                wanted[slot] = true;
+                break;
+            }
+    }
+    for (size_t i = 0; i < plan->count; i++) {
+        if (plan->cached[i] >= 0) {
+            PlanetPatch *loaded = &s->patches[plan->cached[i]], *desired = &plan->patches[i];
+            if (loaded->ready && loaded->built_surface_revision == p->surface_revision &&
+                loaded->built_river_lod == desired->river_lod &&
+                loaded->built_terrain_lod == desired->terrain_lod &&
+                (loaded->span_m >= PLANET_EDIT_SURFACE_SPAN_M || loaded->built_revision == p->revision))
+                continue;
+        }
+        int best = -1;
+        for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++) {
+            PlanetPatch *parent = &s->patches[slot];
+            if (!wanted[slot] && parent->span_m && parent->ready && parent->built_revision == p->revision &&
+                (!s->river_disabled || parent->built_river_lod == PLANET_RIVER_DISABLED_LOD) &&
+                contains_patch(parent, &plan->patches[i]) &&
+                (best < 0 || parent->level > s->patches[best].level))
+                best = slot;
+        }
+        if (best >= 0)
+            plan->fallback[best] = true;
+    }
+    /* One ancestor owns its whole handover region. Overlapping cached ancestors
+       must not fight for depth or retire each other's coverage. */
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        if (plan->fallback[i])
+            for (int j = 0; j < PLANET_PATCH_LIMIT; j++)
+                if (plan->fallback[j] && contains_patch(&s->patches[j], &s->patches[i])) {
+                    plan->fallback[i] = false;
+                    break;
+                }
+    size_t retained = 0;
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        retained += plan->fallback[i];
+    return plan->count + retained <= PLANET_PATCH_LIMIT;
+}
 static bool visible(DVec3 camera, Vec3 d, Vec3 up, float aspect, double view, DVec3 center, double radius) {
     DVec3 r = pd_sub(center, camera);
     Vec3 f = vnormalize(d), right = vnormalize(vcross(f, up)), u = vcross(right, f);
@@ -173,21 +229,24 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
                       previous.cell.z == position.cell.z && previous.offset_mm.x == position.offset_mm.x &&
                       previous.offset_mm.y == position.offset_mm.y &&
                       previous.offset_mm.z == position.offset_mm.z;
-    if (s->selection_valid && !s->pending && stationary && !memcmp(&d, &s->selection_direction, sizeof(d)) &&
-        !memcmp(&up, &s->selection_up, sizeof(up)) && aspect == s->selection_aspect &&
-        view == s->selection_view && s->viewport_height == s->selection_height &&
-        p->revision == s->selection_revision && p->surface_revision == s->selection_surface_revision &&
-        p->a_m == s->selection_a_m && p->b_m == s->selection_b_m &&
-        p->terrain_checksum == s->selection_terrain_checksum && p->relief_enabled == s->selection_relief) {
+    if (s->selection_valid && !s->pending && !s->fallback_count && stationary &&
+        !memcmp(&d, &s->selection_direction, sizeof(d)) && !memcmp(&up, &s->selection_up, sizeof(up)) &&
+        aspect == s->selection_aspect && view == s->selection_view &&
+        s->viewport_height == s->selection_height && p->revision == s->selection_revision &&
+        p->surface_revision == s->selection_surface_revision && p->a_m == s->selection_a_m &&
+        p->b_m == s->selection_b_m && p->terrain_checksum == s->selection_terrain_checksum &&
+        p->relief_enabled == s->selection_relief) {
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
             if (s->patches[i].visible)
                 s->patches[i].last_visible = s->frame;
         return true;
     }
     s->planning_count++;
-    s->visible = s->pending = 0;
-    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+    s->visible = s->pending = s->fallback_count = 0;
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
         s->patches[i].visible = false;
+        s->patches[i].fallback = s->patches[i].covered = false;
+    }
     DVec3 camera = planet_position_m(position);
     double altitude = planet_geographic(p, camera).altitude_m;
     s->river_clearance_m = fmax(0, altitude - 12000 * p->a_m / EARTH_A_METERS);
@@ -197,7 +256,7 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     bool planned = false;
     PatchPlan plan = {.scene = s};
     double refinement = 1.9;
-    for (int attempt = 0; attempt < 5 && !planned; attempt++, refinement *= .75) {
+    for (int attempt = 0; attempt < 8 && !planned; attempt++, refinement *= .75) {
         plan.count = 0;
         planned = true;
         for (int face = 0; face < 6; face++)
@@ -205,6 +264,8 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
                 planned = false;
                 break;
             }
+        if (planned)
+            planned = retain_parents(&plan, p);
     }
     if (!planned) {
         snprintf(p->error, sizeof(p->error), "Planet visible-patch budget exceeded");
@@ -212,17 +273,27 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     }
     /* Reserve all reusable slots before inserting new patches. A new request
        must not evict a cached patch that appears later in the traversal. */
-    bool cached[PLANET_PATCH_LIMIT] = {false};
-    for (size_t i = 0; i < plan.count; i++)
-        for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++)
-            if (s->patches[slot].span_m && key_equal(&s->patches[slot], &plan.patches[i])) {
-                cached[i] = true;
-                break;
-            }
-    for (int pass = 0; pass < 2; pass++)
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1)
+            for (int slot = 0; slot < PLANET_PATCH_LIMIT; slot++)
+                if (plan.fallback[slot]) {
+                    PlanetPatch *parent = &s->patches[slot];
+                    parent->visible = parent->fallback = true;
+                    parent->last_visible = s->frame;
+                    s->visible++;
+                    s->fallback_count++;
+                }
         for (size_t i = 0; i < plan.count; i++)
-            if (cached[i] == (pass == 0) && !request(s, plan.patches[i]))
+            if ((plan.cached[i] >= 0) == (pass == 0) && !request(s, plan.patches[i]))
                 return false;
+    }
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        if (s->patches[i].visible && !s->patches[i].fallback)
+            for (int parent = 0; parent < PLANET_PATCH_LIMIT; parent++)
+                if (plan.fallback[parent] && contains_patch(&s->patches[parent], &s->patches[i])) {
+                    s->patches[i].covered = true;
+                    break;
+                }
     PlanetBox nearby;
     double c[3] = {camera.x, camera.y, camera.z};
     for (int i = 0; i < 3; i++) {
@@ -255,7 +326,7 @@ bool planet_scene_update(PlanetScene *s, Planet *p, WorldPosition position, Vec3
     }
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
         PlanetPatch *e = &s->patches[i];
-        if (e->visible &&
+        if (e->visible && !e->fallback &&
             (!e->ready || e->built_river_lod != e->river_lod || e->built_terrain_lod != e->terrain_lod ||
              e->built_surface_revision != p->surface_revision ||
              ((e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) && e->built_revision != p->revision) ||

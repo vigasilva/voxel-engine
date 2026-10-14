@@ -16,6 +16,7 @@ def main():
     parser.add_argument('executable', type=Path)
     parser.add_argument('--screenshots', type=Path)
     parser.add_argument('--cache-only', action='store_true')
+    parser.add_argument('--handover-only', action='store_true')
     args = parser.parse_args()
     executable = args.executable.resolve()
     root = Path(__file__).resolve().parents[1]
@@ -100,7 +101,38 @@ def main():
             stop()
             print(f"PASS: {retained['cache']} GPU meshes retained ({retained['cache_mib']:.2f} MiB); return to {initial['visible']} patches required zero mesh jobs")
 
+        def handover_check():
+            window = start('--altitude', '1000000', '--freecam', '--render-stats')
+            xdo('key', 'F7', 'F12')
+            minimum_frame = 0
+            def stats():
+                matches = re.findall(r'Render stats: frame=(\d+) mode=(\w+) visible=(\d+) pending=(\d+) triangles=(\d+) cache=(\d+) cache_mib=([0-9.]+) plans=(\d+) fallback=(\d+)', logpath.read_text())
+                return [dict(frame=int(m[0]), mode=m[1], visible=int(m[2]), pending=int(m[3]), triangles=int(m[4]), fallback=int(m[8])) for m in matches]
+            def loaded():
+                values = stats()
+                return values[-1] if values and values[-1]['frame'] >= minimum_frame and values[-1]['visible'] > 0 and values[-1]['pending'] == 0 and values[-1]['fallback'] == 0 else None
+            initial = wait_for(loaded, 'complete coarse terrain before approach', timeout=25)
+            xdo('mousemove', '--window', window, '640', '400')
+            xdo('key', 'Tab')
+            time.sleep(.1)
+            xdo('keydown', 'w')
+            time.sleep(3)
+            xdo('keyup', 'w')
+            xdo('key', 'Tab', 'F7')
+            minimum_frame = stats()[-1]['frame'] + 1
+            final = wait_for(loaded, 'completed finer terrain handover', timeout=25)
+            values = [v for v in stats() if v['frame'] > initial['frame']]
+            maximum = max(v['fallback'] for v in values)
+            assert maximum > 0, 'No loaded coarse GPU meshes were retained during refinement'
+            assert final['frame'] > initial['frame'] and final['triangles'] > 0, final
+            assert max(pixels(window)) > 50, 'Earth disappeared after refinement'
+            stop()
+            print(f"PASS: up to {maximum} loaded coarse GPU meshes retained during approach; finer terrain completed with zero remaining fallbacks")
+
         try:
+            if args.handover_only:
+                handover_check()
+                return
             if args.cache_only:
                 cache_check()
                 return

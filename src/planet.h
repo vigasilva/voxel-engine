@@ -65,6 +65,7 @@ typedef struct {
     int face, level;
     uint32_t x, y;
     bool edited, visible, reset;
+    bool fallback, covered;
     CellCoord edit_key, origin;
     DVec3 center_m;
     double radius_m, span_m;
@@ -79,6 +80,7 @@ typedef struct {
     PlanetPatch patches[PLANET_PATCH_LIMIT];
     uint64_t frame;
     size_t visible, pending;
+    size_t fallback_count;
     int viewport_height;
     double river_clearance_m, river_pixel_factor;
     bool river_disabled;

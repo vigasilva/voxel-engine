@@ -10,6 +10,7 @@ typedef struct {
     size_t gpu_buffer_bytes, gpu_depth_bytes, gpu_texture_bytes, gpu_heap_bytes;
     size_t occluded_patches, occluded_max;
     size_t cached_meshes, cached_mesh_bytes;
+    size_t fallback_meshes;
     double history[RESOURCE_HISTORY], sample_seconds;
     size_t history_next, history_count;
     clock_t previous_cpu;

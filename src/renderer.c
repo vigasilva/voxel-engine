@@ -1170,6 +1170,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         r->planet_scene.frame++;
         r->planet_scene.visible = 0;
         r->planet_scene.pending = 0;
+        r->planet_scene.fallback_count = 0;
         r->planet_scene.river_disabled = true;
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
             r->planet_scene.patches[i].visible = false;
@@ -1182,7 +1183,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         e->visible = false;
         if (i < PLANET_PATCH_LIMIT) {
             PlanetPatch *patch = &r->planet_scene.patches[i];
-            e->visible = patch->visible;
+            e->visible = patch->visible && !patch->covered;
             e->origin = patch->origin;
             e->last_visible = patch->last_visible;
             if (r->planet_scene.river_disabled && !patch->edited &&
@@ -1206,12 +1207,12 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
        rendering used to discard terrain within a fraction of a second. */
     size_t cached_bytes = 0;
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
-        if (!r->scene.entries[i].visible)
+        if (!r->planet_scene.patches[i].visible)
             cached_bytes += (size_t)r->chunks[i].allocated;
     while (cached_bytes > 128u * 1024u * 1024u) {
         int oldest = -1;
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
-            if (!r->scene.entries[i].visible && r->chunks[i].memory &&
+            if (!r->planet_scene.patches[i].visible && r->chunks[i].memory &&
                 (oldest < 0 || r->scene.entries[i].last_visible < r->scene.entries[oldest].last_visible))
                 oldest = i;
         if (oldest < 0)
@@ -1223,7 +1224,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
     PlanetMeshResult result;
     if (planet_worker_take(r->worker, &result)) {
         PlanetPatch *patch = &r->planet_scene.patches[result.slot];
-        bool current = patch->visible && result.revision == p->revision &&
+        bool current = patch->visible && !patch->fallback && result.revision == p->revision &&
                        result.surface_revision == p->surface_revision && same_patch(patch, &result.patch);
         if (current && !result.ok) {
             snprintf(p->error, sizeof(p->error), "%s", result.error);
@@ -1250,7 +1251,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
         double closest = HUGE_VAL;
         for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
             PlanetPatch *e = &r->planet_scene.patches[i];
-            if (!e->visible || (e->ready && e->built_river_lod == e->river_lod &&
+            if (!e->visible || e->fallback || (e->ready && e->built_river_lod == e->river_lod &&
                                 e->built_terrain_lod == e->terrain_lod &&
                                 e->built_surface_revision == p->surface_revision &&
                                 (!(e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) ||
@@ -1292,7 +1293,7 @@ bool renderer_sync_planet(Renderer *r, Planet *p, WorldPosition camera, Vec3 dir
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
         PlanetPatch *e = &r->planet_scene.patches[i];
         r->planet_scene.pending +=
-            e->visible &&
+            e->visible && !e->fallback &&
             (!e->ready || e->built_river_lod != e->river_lod || e->built_terrain_lod != e->terrain_lod ||
              e->built_surface_revision != p->surface_revision ||
              ((e->edited || e->span_m < PLANET_EDIT_SURFACE_SPAN_M) && e->built_revision != p->revision) ||
@@ -1365,7 +1366,7 @@ static void issue_occlusion(Renderer *r, const RenderPush *push, WorldPosition c
     vkCmdBindVertexBuffers(r->command, 0, 1, &r->occlusion_boxes.buffer, &offset);
     for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
         const PlanetPatch *patch = &r->planet_scene.patches[i];
-        if (!patch->visible || !r->chunks[i].count)
+        if (!patch->visible || patch->covered || !r->chunks[i].count)
             continue;
         DVec3 center, half;
         occlusion_bounds(r, i, camera, &center, &half);
@@ -1676,12 +1677,16 @@ void renderer_resources(const Renderer *r, ResourceStats *stats) {
     stats->gpu_depth_bytes = (size_t)r->depth_allocated;
     stats->gpu_texture_bytes = (size_t)r->texture_allocated;
     stats->cached_meshes = stats->cached_mesh_bytes = 0;
+    stats->fallback_meshes = 0;
     if (r->planet_mode)
-        for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
-            if (!r->scene.entries[i].visible && r->chunks[i].memory) {
+        for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
+            if (r->planet_scene.patches[i].visible && r->planet_scene.patches[i].fallback && r->chunks[i].count)
+                stats->fallback_meshes++;
+            if (!r->planet_scene.patches[i].visible && r->chunks[i].memory) {
                 stats->cached_meshes++;
                 stats->cached_mesh_bytes += (size_t)r->chunks[i].allocated;
             }
+        }
     VkPhysicalDeviceMemoryProperties memory;
     vkGetPhysicalDeviceMemoryProperties(r->physical, &memory);
     stats->gpu_heap_bytes = 0;

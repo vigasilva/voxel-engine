@@ -473,6 +473,68 @@ static void test_terrain_rotation_cache(void) {
     free(scene);
     planet_destroy(&p);
 }
+static void mark_scene_loaded(PlanetScene *scene, const Planet *p) {
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
+        PlanetPatch *patch = &scene->patches[i];
+        if (!patch->visible || patch->fallback)
+            continue;
+        patch->ready = true;
+        patch->reset = false;
+        patch->built_revision = p->revision;
+        patch->built_surface_revision = p->surface_revision;
+        patch->built_river_lod = patch->river_lod;
+        patch->built_terrain_lod = patch->terrain_lod;
+    }
+}
+static void test_terrain_handover(void) {
+    Planet p;
+    CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    PlanetScene *scene = malloc(sizeof(*scene));
+    CHECK(scene);
+    planet_scene_init(scene);
+    WorldPosition camera;
+    CHECK(planet_set_position(planet_from_geographic(&p, 40, -105, 1000000), &camera));
+    DVec3 up = planet_up(&p, planet_position_m(camera));
+    Vec3 direction = v3((float)-up.x, (float)-up.y, (float)-up.z);
+    CHECK(planet_scene_update(scene, &p, camera, direction, v3(0, 0, 1), 1.6, p.a_m * 8));
+    mark_scene_loaded(scene, &p);
+    CHECK(planet_set_position(planet_from_geographic(&p, 40, -105, 100000), &camera));
+    up = planet_up(&p, planet_position_m(camera));
+    direction = v3((float)-up.x, (float)-up.y, (float)-up.z);
+    CHECK(planet_scene_update(scene, &p, camera, direction, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->fallback_count > 0 && scene->pending > 0);
+    size_t retained = scene->fallback_count, covered = 0;
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++) {
+        PlanetPatch *patch = &scene->patches[i];
+        covered += patch->covered;
+        if (patch->fallback)
+            CHECK(patch->visible && patch->ready && !patch->reset && !patch->covered);
+    }
+    CHECK(covered > 0);
+    /* Finish one child: its parent must stay until the whole region is ready. */
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        if (scene->patches[i].covered && !scene->patches[i].ready) {
+            PlanetPatch *patch = &scene->patches[i];
+            patch->ready = true;
+            patch->reset = false;
+            patch->built_revision = p.revision;
+            patch->built_surface_revision = p.surface_revision;
+            patch->built_river_lod = patch->river_lod;
+            patch->built_terrain_lod = patch->terrain_lod;
+            break;
+        }
+    CHECK(planet_scene_update(scene, &p, camera, direction, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->fallback_count > 0 && scene->pending > 0);
+    mark_scene_loaded(scene, &p);
+    CHECK(planet_scene_update(scene, &p, camera, direction, v3(0, 0, 1), 1.6, p.a_m * 8));
+    CHECK(scene->fallback_count == 0 && scene->pending == 0);
+    for (int i = 0; i < PLANET_PATCH_LIMIT; i++)
+        CHECK(!scene->patches[i].covered && !scene->patches[i].fallback);
+    printf("LOD handover: %zu parents retained over %zu replacement patches, retired only after completion\n",
+           retained, covered);
+    free(scene);
+    planet_destroy(&p);
+}
 static void test_height_and_greedy(void) {
     Planet p;
     CHECK(planet_init(&p, TEST_EARTH_DATA, ":memory:", EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
@@ -944,6 +1006,11 @@ int main(int argc, char **argv) {
         test_terrain_rotation_cache();
         return 0;
     }
+    if (argc == 2 && !strcmp(argv[1], "--terrain-handover")) {
+        test_terrain_handover();
+        return 0;
+    }
+    test_terrain_handover();
     test_terrain_rotation_cache();
     test_terrain_seams();
     test_smooth_edit_surface();
