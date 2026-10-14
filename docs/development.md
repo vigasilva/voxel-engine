@@ -32,6 +32,9 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [ ] Add the periodic table, extensible compositions, geological material families, and physical state queries.
 - [ ] Improve the mesh appearance of natural voxel excavations and verify saved voxel values remain intact.
 - [ ] Research and integrate finer public terrain providers with on-demand sampling, attribution, and explicit coverage.
+- [ ] Research and import the best available terrain/shape data for other planets and major moons, with explicit coverage and accuracy.
+- [ ] Add the major planetary moons and their orbital interactions.
+- [ ] Implement axial rotation and separate body-local voxel grids that move and rotate with each celestial body while retaining edit coordinates.
 - [ ] Complete CPU, sanitizer, and focused Vulkan checks for the final behavior and update the implementation notes.
 
 ## Earth data direction
