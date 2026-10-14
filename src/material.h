@@ -4,21 +4,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 #define COMPOSITION_CAPACITY 16
-/* Stable IDs are part of the save format. Never reorder existing materials. */
+#include "material_ids.h"
 typedef enum {
-    MAT_AIR,
-    MAT_SOIL,
-    MAT_GRASS,
-    MAT_STONE,
-    MAT_SAND,
-    MAT_IRON,
-    MAT_COPPER,
-    MAT_WOOD,
-    MAT_CLAY,
-    MAT_WATER,
-    MAT_ICE,
-    MAT_COUNT
-} MaterialId;
+    FAMILY_GENERIC,
+    FAMILY_SOIL,
+    FAMILY_ROCK,
+    FAMILY_MINERAL,
+    FAMILY_SAND,
+    FAMILY_METAL,
+    FAMILY_ORGANIC,
+    FAMILY_WATER,
+    FAMILY_VOLATILE,
+    FAMILY_ELEMENT
+} MaterialFamily;
 typedef struct {
     ElementId element;
     float mass_fraction;
@@ -32,7 +30,14 @@ typedef struct {
     bool solid;
     uint8_t constituent_count;
     Constituent composition[COMPOSITION_CAPACITY];
+    MaterialFamily family;
+    PhysicalPhase reference_phase;
+    bool natural_surface, properties_estimated;
+    int16_t pure_element; /* Atomic-number-minus-one, or -1 for a compound/mixture. */
 } Material;
 const Material *material_get(uint16_t id);
+const Material *material_find(const char *name);
+const char *material_family_name(MaterialFamily family);
+uint16_t material_element_id(ElementId element);
 bool materials_validate(void);
 #endif

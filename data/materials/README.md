@@ -1,0 +1,9 @@
+# Representative material recipes
+
+`recipes.json` is the editable source for the 60 non-elemental presets. IDs are permanent save identifiers. Existing IDs 0–10 stay fixed. Recipes are supplied as elemental mass fractions, atom ratios for selected mineral endmembers, or mineral/preset mass mixtures. `tools/import_materials.py` resolves mixtures recursively, normalizes fractions using the [element snapshot](../elements/README.md), rejects invalid/cyclic recipes, and generates `src/material_ids.h`, `src/materials.inc` and `shaders/material_ids.glsl` together.
+
+Rock mineral proportions, colours, bulk density, heat capacity and conductivity are illustrative estimates for this proof of concept. Porosity, water content, crystal orientation, mineral substitution and temperature affect real properties. Mineral formulas represent selected endmembers, not every member of a solid-solution series. Compare the [USGS description of igneous rock components](https://www.usgs.gov/media/images/components-igneous-rocks) and [USGS calcium-bearing mineral examples](https://pubs.usgs.gov/sir/2017/5118/elements/Calcium/Ca_txt.html). Further source-specific geological models can add recipes without overwriting existing IDs.
+
+The generator also appends all 118 elemental presets from PubChem's offline snapshot. Missing transport/density data is preserved as unknown. Their colour palette is for chemical identification, not photorealistic albedo. Reference phase metadata and collision presets do not implement thermodynamic transitions, chemical reactions or flowing fluids.
+
+Run `python3 tools/import_materials.py --check` to verify generated files. After refreshing the PubChem snapshot, regenerate both the element catalogue and material recipes explicitly. Normal CMake builds use the checked-in outputs and require no network access.

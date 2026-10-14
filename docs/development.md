@@ -14,7 +14,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Procedural terrain | Deterministic small-scale noise supplements measured heights; fallback areas receive larger noise octaves. | This is not yet a biome-aware landscape generator or a model of mountain erosion. |
 | Distant textures | Bakes engine heights, material IDs, and inland-water classification; no photographic Earth imagery. | Current material classification is too simple for a realistic global biome appearance. |
 | Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
-| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and eleven stable placement materials; temperature is stored per voxel. | Add geological/elemental placement families and temperature/pressure phase queries. Reference standard states alone do not implement melting, flow, heat transfer, or chemistry. |
+| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and 178 stable placement materials; temperature is stored per voxel. | Add temperature/pressure phase queries and biome-aware use of the geological families. Reference standard states alone do not implement melting, flow, heat transfer, or chemistry. |
 | Solar System and relativity | Nine mutually gravitating bodies, approximate J2000 initial conditions, special-relativistic helpers, and leading weak-field Schwarzschild corrections. | Not a full Einstein field solver. Other planets are analytic renderings, not editable terrain worlds. |
 | Resource visualizers | CPU/RAM/tracked Vulkan allocations, frame history, material slices, patch queues, and occlusion counts. | Material slices are samples, not an ore-deposit generator; driver-wide GPU usage is not measured. |
 
@@ -37,7 +37,8 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [ ] Represent world material/biome states in the engine-derived space view.
 - [x] Add all 118 elements with missing/predicted metadata and reproducible offline import.
 - [x] Add stoichiometric and mass-mixture composition helpers with validation.
-- [ ] Add geological and elemental placement material families and physical state queries.
+- [x] Add common geological/volatile families, all 118 elemental placement materials, and searchable editor selection.
+- [ ] Add temperature/pressure physical state queries and transition foundations.
 - [ ] Improve the mesh appearance of natural voxel excavations and verify saved voxel values remain intact.
 - [ ] Research and integrate finer public terrain providers with on-demand sampling, attribution, and explicit coverage.
 - [ ] Research and import the best available terrain/shape data for other planets and major moons, with explicit coverage and accuracy.
@@ -56,7 +57,7 @@ The engine must select sources by coverage, sampling resolution, vertical datum,
 | [ESA WorldCover](https://esa-worldcover.org/en/about/about) | Land-cover classes and permanent water | Existing importer retains only its water classification; full class support is pending. |
 | [USGS 3DEP](https://www.usgs.gov/faqs/what-coverage-3d-elevation-program-3dep-dems) | Finer US terrain where products are available | Provider selection/import pending; coverage must be queried. |
 | [PGC polar elevation products](https://www.pgc.umn.edu/guides/stereo-derived-elevation-models/pgc-dem-products-arcticdem-rema-and-earthdem/) | Finer Arctic/Antarctic surface models | Access, datum, coverage, and product-specific terms must be checked before enabling a provider. |
-| [IUPAC periodic table](https://iupac.org/what-we-do/periodic-table-of-elements/) | Element identity and atomic-weight provenance | Material-system expansion pending. |
+| [IUPAC periodic table](https://iupac.org/what-we-do/periodic-table-of-elements/) | Element identity and atomic-weight provenance | Full identity/reference data and composition catalogue included; thermal simulation remains pending. |
 
 Additional regional surveys can be imported through a common georeferenced raster path. Providers requiring account access or restricted datasets must remain explicitly configured. There is no single uniformly detailed survey of all Earth features; the engine must show source quality honestly and distinguish procedural detail from measurements.
 

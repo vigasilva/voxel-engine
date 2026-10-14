@@ -1,3 +1,4 @@
+#include "material_ids.glsl"
 layout(set=0,binding=0,std140) uniform Globals {
     vec4 cameraEarth;
     vec4 detailOrigin;
@@ -7,7 +8,7 @@ layout(set=0,binding=0,std140) uniform Globals {
     vec4 bodyDirectionRadius[9];
     vec4 bodyLightDistance[9];
     vec4 bodyColor[9];
-    vec4 materialColor[11];
+    vec4 materialColor[MATERIAL_COUNT];
     vec4 planetAxes;
 } g;
 layout(set=0,binding=1) uniform sampler2D terrainAtlas;
@@ -28,7 +29,7 @@ vec3 earthColor(vec3 position) {
     float land=smoothstep(-shore,shore,height)*(1.0-smoothstep(.4,.6,terrain.a));
     ivec2 dimensions=textureSize(terrainAtlas,0);
     ivec2 pixel=ivec2(fract(uv.x)*dimensions.x,clamp(uv.y,0.0,.999999)*dimensions.y);
-    int material=clamp(int(round(texelFetch(terrainAtlas,pixel,0).b*255.0)),1,10);
+    int material=clamp(int(round(texelFetch(terrainAtlas,pixel,0).b*255.0)),1,MATERIAL_COUNT-1);
     return mix(g.materialColor[9].rgb,g.materialColor[material].rgb,land);
 }
 float detailNoise(vec3 p,float scale) {

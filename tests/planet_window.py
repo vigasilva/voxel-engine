@@ -149,6 +149,29 @@ def main():
                         time.sleep(.1)
                     xdo("click", "1")
                     wait_for(lambda: copper_volume(save) == 0, "exact copper removal")
+                    # Search the expanded catalogue, restore capture, place a new
+                    # geological material, then verify its independent saved ID.
+                    xdo("key", "m")
+                    time.sleep(.2)
+                    xdo("type", "--clearmodifiers", "--delay", "60", "Basalt")
+                    time.sleep(.2)
+                    snapshot("material-catalogue.png")
+                    xdo("key", "Return")
+                    time.sleep(.2)
+                    xdo("click", "3")
+                    wait_for(lambda: copper_volume(save, 12) == 1, "catalogue-selected 1 mm basalt placement")
+                    xdo("click", "1")
+                    wait_for(lambda: copper_volume(save, 12) == 0, "basalt removal")
+                    xdo("key", "m")
+                    time.sleep(.2)
+                    xdo("type", "--clearmodifiers", "--delay", "60", "element Og")
+                    xdo("key", "Escape")
+                    time.sleep(.2)
+                    # Cancelling returns to the prior material and camera capture.
+                    xdo("click", "3")
+                    wait_for(lambda: copper_volume(save, 12) == 1, "catalogue cancel preserves material")
+                    xdo("click", "1")
+                    wait_for(lambda: copper_volume(save, 12) == 0, "cancel-case cleanup")
                     xdo("key", "9")
                     xdo("click", "3")
                     wait_for(lambda: copper_volume(save, 9) == 1, "non-solid 1 mm water placement")
@@ -252,7 +275,7 @@ def main():
                     output = log.read()
                     assert "Vulkan validation:" not in output and "Planet camera: AIM AT EARTH" in output
                     assert "Rendering: DISTANT ENGINE TEXTURE / ZERO TERRAIN MESHES" in output
-                    print("PASS: height terrain, exact 1 mm copper/water edits, spherical brushes, greedy geometry, autosave/reopen, orbit, 43 million m visibility, F7 aim, visible Sun/F2 aim, F1 resources/F4 material slice, flight orientation, inland water")
+                    print("PASS: material catalogue selection/cancel and exact basalt edits, height terrain, exact 1 mm copper/water edits, spherical brushes, greedy geometry, autosave/reopen, orbit, 43 million m visibility, F7 aim, visible Sun/F2 aim, F1 resources/F4 material slice, flight orientation, inland water")
         finally:
             if app and app.poll() is None:
                 app.terminate()

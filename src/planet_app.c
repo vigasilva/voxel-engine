@@ -1,6 +1,7 @@
 #include "planet.h"
 #include "renderer.h"
 #include "hud.h"
+#include "material_picker_sdl.h"
 #include "resources.h"
 #include "terrain_stream.h"
 #include "solar.h"
@@ -301,6 +302,8 @@ int planet_app_main(int argc, char **argv) {
            planet_river_count(&p), planet_detail_count(&p), terrain_stream.enabled ? "ON" : "OFF");
     puts("Planet allocation limits: UNLIMITED edit regions, tree nodes, fragments, mesh vertices and GPU "
          "buffers");
+    MaterialPicker picker = {0};
+    SDL_StopTextInput();
     while (running && (!frames_limit || frame < frames_limit)) {
         uint64_t now = SDL_GetPerformanceCounter();
         double elapsed = (double)(now - last) / frequency;
@@ -312,6 +315,8 @@ int planet_app_main(int argc, char **argv) {
             status[0] = 0;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (material_picker_event(&picker, &event, &material, &captured))
+                continue;
             if (event.type == SDL_QUIT)
                 running = false;
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
@@ -710,6 +715,7 @@ int planet_app_main(int argc, char **argv) {
                     mat_view_up(v3(0, 0, 0), vector(forward), vector(up)));
         push.viewport[2] = (float)geometry;
         push.viewport[3] = material_view ? -1 : 0;
+        hud_material_picker(&hud, &picker, width, height);
         if (hud.overflow || !renderer_draw(renderer, &push, camera.body.position, hud.vertices, hud.count)) {
             ok = false;
             break;

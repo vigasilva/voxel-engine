@@ -107,7 +107,12 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
     if (status && *status)
         text(h, 34, 218, 1, accent, status);
     int px = width - 344;
-    rect(h, (float)px, 18, 326, hit.hit ? (hit.fine ? 290 : 266) : 78, panel);
+    int rows = hit.hit ? (material_get(world_hit_voxel(w, hit).material)->constituent_count + 2) / 3 : 0;
+    int chunk_y = 218 + rows * 16 + 4;
+    if (chunk_y < 256)
+        chunk_y = 256;
+    int footer_y = chunk_y + (hit.fine ? 24 : 0);
+    rect(h, (float)px, 18, 326, hit.hit ? footer_y + 10 : 78, panel);
     text(h, px + 16, 34, 1, accent, "MATERIAL INSPECTOR");
     if (hit.hit) {
         Voxel v = world_hit_voxel(w, hit);
@@ -124,10 +129,13 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
         snprintf(line, sizeof(line), "TEMPERATURE %.2f K / %.1f C", v.temperature_k,
                  v.temperature_k - 273.15f);
         text(h, px + 16, 146, 1, white, line);
-        snprintf(line, sizeof(line), "DENSITY %.0f KG/M3", m->density_kg_m3);
+        snprintf(line, sizeof(line), isfinite(m->density_kg_m3) ? "DENSITY %.0f KG/M3" : "DENSITY UNKNOWN",
+                 m->density_kg_m3);
         text(h, px + 16, 162, 1, white, line);
         float s = VOXEL_SIZE_METERS;
-        if (hit.fine)
+        if (!isfinite(m->density_kg_m3))
+            snprintf(line, sizeof(line), "CELL MASS UNKNOWN");
+        else if (hit.fine)
             snprintf(line, sizeof(line), "1 MM CELL MASS %.3f MG", m->density_kg_m3 * .001f);
         else
             snprintf(line, sizeof(line), "CELL MASS %.3f KG", m->density_kg_m3 * s * s * s);
@@ -141,17 +149,20 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
         if (hit.fine) {
             snprintf(line, sizeof(line), "CHUNK %d / MM %d %d %d", hit.chunk, hit.mm[0], hit.mm[1],
                      hit.mm[2]);
-            text(h, px + 16, 256, 1, accent, line);
+            text(h, px + 16, chunk_y, 1, accent, line);
         }
-        text(h, px + 16, hit.fine ? 280 : 256, 1, muted, "ILLUSTRATIVE MATERIAL PRESETS");
+        snprintf(line, sizeof(line), "PRESET %s / M CATALOGUE", phase_name(m->reference_phase));
+        text(h, px + 16, footer_y, 1, muted, line);
     } else
         text(h, px + 16, 60, 1, muted, "POINT AT A VOXEL TO INSPECT IT");
-    int tray_width = (MAT_COUNT - 1) * 66 + 14, tx = (width - tray_width) / 2, ty = height - 90;
+    int first = ((selected ? selected - 1 : 0) / 10) * 10 + 1;
+    int last = first + 10 < MAT_COUNT ? first + 10 : MAT_COUNT;
+    int tray_width = (last - first) * 66 + 14, tx = (width - tray_width) / 2, ty = height - 90;
     rect(h, (float)tx, (float)(ty - 28), (float)tray_width, 100, panel);
     snprintf(line, sizeof(line), "PLACE: %s", material_get(selected)->name);
     text(h, tx + 14, ty - 16, 1, white, line);
-    for (int i = 1; i < MAT_COUNT; i++) {
-        int x = tx + 10 + (i - 1) * 66;
+    for (int i = first; i < last; i++) {
+        int x = tx + 10 + (i - first) * 66;
         const Material *m = material_get((uint16_t)i);
         rect(h, (float)x, (float)ty, 60, 56, i == selected ? accent : muted);
         rect(h, (float)x + 2, (float)ty + 2, 56, 52, panel);
@@ -163,7 +174,7 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
     text(h, tx + 12, ty - 70, 1, muted,
          workshop ? "WASD 60 MM/S / SHIFT 300 / ALT 5 / SPACE UP / CTRL DOWN"
                   : "WASD FLY / SPACE UP / CTRL DOWN / SHIFT FAST");
-    text(h, tx + 12, ty - 56, 1, muted, "LMB REMOVE / RMB PLACE / MMB PICK / 1-8 SELECT");
+    text(h, tx + 12, ty - 56, 1, muted, "LMB REMOVE / RMB PLACE / MMB PICK / M CATALOGUE");
     text(h, 18, height - 16, 1, muted,
          "F3 GEOMETRY / F4 WORKSHOP / F5 SAVE / F9 LOAD / TAB MOUSE / ESC QUIT");
     int cx = width / 2, cy = height / 2;
@@ -222,24 +233,28 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
     if (status && *status)
         text(h, 34, 236, 1, accent, status);
     int px = width - 332;
-    rect(h, (float)px, 18, 314, hit.hit ? 192 : 70, panel);
+    rect(h, (float)px, 18, 314, hit.hit ? 210 : 70, panel);
     text(h, px + 16, 34, 1, accent, "PLANET MATERIAL INSPECTOR");
     if (hit.hit) {
         const Material *mat = material_get(hit.value.material);
         text(h, px + 16, 56, 2, white, mat->name);
         snprintf(line, sizeof(line), "DISTANCE %.4f M / %.2f K", hit.distance_m, hit.value.temperature_k);
         text(h, px + 16, 82, 1, muted, line);
-        snprintf(line, sizeof(line), "1 MM MASS %.3f MG", mat->density_kg_m3 * .001);
+        snprintf(line, sizeof(line), isfinite(mat->density_kg_m3) ? "1 MM MASS %.3f MG" : "1 MM MASS UNKNOWN",
+                 mat->density_kg_m3 * .001);
         text(h, px + 16, 100, 1, white, line);
         for (int a = 0; a < 3; a++) {
             snprintf(line, sizeof(line), "%c MM %" PRId64, "XYZ"[a], hit.mm[a]);
             text(h, px + 16, 120 + a * 16, 1, muted, line);
         }
-        text(h, px + 16, 178, 1, accent, "SATELLITE TERRAIN + WATER / F2 SUN");
+        snprintf(line, sizeof(line), "%s / PRESET %s", material_family_name(mat->family),
+                 phase_name(mat->reference_phase));
+        text(h, px + 16, 178, 1, accent, line);
+        text(h, px + 16, 196, 1, muted, "M MATERIAL CATALOGUE / F2 SUN");
     } else
         text(h, px + 16, 56, 1, muted, "POINT AT THE SURFACE TO EDIT");
     rect(h, width * .5f - 232, height - 70, 464, 52, panel);
-    snprintf(line, sizeof(line), "PLACE %s / 1-9,0 OR WHEEL", material_get(selected)->name);
+    snprintf(line, sizeof(line), "PLACE %.25s / M CATALOGUE", material_get(selected)->name);
     text(h, width * .5f - 216, height - 56, 1, white, line);
     text(h, width * .5f - 216, height - 38, 1, muted, "LMB REMOVE / RMB PLACE / MMB PICK / TAB MOUSE");
     text(h, 20, height - 14, 1, muted,
@@ -323,14 +338,28 @@ void hud_resources(Hud *h, const ResourceStats *s, const ResourceScan *scan, int
             rect(h, mx + 12 * step, my + 12 * step, step, 1, white);
             rect(h, mx + 12 * step, my + 12 * step + step - 1, step, 1, white);
             text(h, x + 16, y + 286 - delta, 1, accent, "ACTUAL VOXEL SAMPLES / NOT DEPOSIT VOLUME");
-            for (int id = 0; id < MAT_COUNT; id++) {
-                const Material *m = material_get((uint16_t)id);
-                int lx = x + 16 + (id % 2) * 146, ly = y + 306 - delta + (id / 2) * (compact ? 10 : 14);
+            uint16_t present[MAT_COUNT];
+            size_t count = 0;
+            for (uint16_t id = 0; id < MAT_COUNT; id++)
+                if (scan->counts[id]) {
+                    size_t at = count++;
+                    while (at && scan->counts[present[at - 1]] < scan->counts[id]) {
+                        present[at] = present[at - 1];
+                        at--;
+                    }
+                    present[at] = id;
+                }
+            for (size_t i = 0; i < count && i < 12; i++) {
+                uint16_t id = present[i];
+                const Material *m = material_get(id);
+                int lx = x + 16 + (i % 2) * 146, ly = y + 306 - delta + (i / 2) * (compact ? 10 : 14);
                 rect(h, lx, ly, 7, 7, v3(m->color[0], m->color[1], m->color[2]));
-                snprintf(line, sizeof(line), "%s %.1F%%", m->name,
+                snprintf(line, sizeof(line), "%.12s %.1F%%", m->name,
                          100.0 * scan->counts[id] / (RESOURCE_SCAN_GRID * RESOURCE_SCAN_GRID));
                 text(h, lx + 11, ly, 1, id == selected ? accent : muted, line);
             }
+            if (count > 12)
+                text(h, x + 16, y + 388 - delta - shorter, 1, muted, "SHOWING 12 MOST FREQUENT MATERIALS");
         }
         text(h, x + 16, y + 400 - delta - shorter, 1, white, "PGUP/PGDN DEPTH / - = ZOOM");
         text(h, x + 16, y + 416 - delta - shorter, 1, muted, "LOCAL TANGENT SLICE / AIM OR GROUND CENTER");
@@ -392,4 +421,60 @@ void hud_build_solar(Hud *h, const SolarSystem *s, int focus, int width, int hei
         rect(h, x - 3, (float)y + 50, 6, 6, i == focus ? white : s->bodies[i].color);
         text(h, (int)x - 15, y + 68 + (i % 2) * 16, 1, i == focus ? accent : muted, s->bodies[i].name);
     }
+}
+
+void hud_material_picker(Hud *h, const MaterialPicker *p, int width, int height) {
+    if (!p->active)
+        return;
+    Vec3 panel = v3(.025f, .045f, .06f), white = v3(.9f, .94f, .98f), accent = v3(.35f, .86f, .70f),
+         muted = v3(.54f, .64f, .7f);
+    int w = width - 40 < 680 ? width - 40 : 680, pane_height = height - 40 < 600 ? height - 40 : 600;
+    int x = (width - w) / 2, y = (height - pane_height) / 2;
+    rect(h, x, y, w, pane_height, panel);
+    text(h, x + 20, y + 18, 2, accent, "MATERIAL CATALOGUE");
+    char line[180];
+    snprintf(line, sizeof(line), "SEARCH: %s_", p->query);
+    text(h, x + 20, y + 50, 1, white, line);
+    snprintf(line, sizeof(line), "%zu MATCHES / UP DOWN OR WHEEL / PGUP PGDN", p->count);
+    text(h, x + 20, y + 70, 1, muted, line);
+    int rows = (pane_height - 300) / 22;
+    if (rows < 3)
+        rows = 3;
+    if (rows > 10)
+        rows = 10;
+    size_t first = p->cursor >= (size_t)rows ? p->cursor - rows + 1 : 0;
+    for (int row = 0; row < rows && first + row < p->count; row++) {
+        size_t at = first + row;
+        uint16_t id = p->matches[at];
+        const Material *m = material_get(id);
+        if (at == p->cursor)
+            rect(h, x + 14, y + 92 + row * 22, w - 28, 20, v3(.09f, .18f, .20f));
+        rect(h, x + 20, y + 97 + row * 22, 12, 10, v3(m->color[0], m->color[1], m->color[2]));
+        snprintf(line, sizeof(line), "%u %-27s %s / %s", id, m->name, material_family_name(m->family),
+                 phase_name(m->reference_phase));
+        text(h, x + 42, y + 98 + row * 22, 1, at == p->cursor ? accent : white, line);
+    }
+    if (p->count) {
+        const Material *m = material_get(material_picker_selected(p));
+        int detail = y + 106 + rows * 22;
+        snprintf(line, sizeof(line), "%s / REFERENCE %s", m->name, phase_name(m->reference_phase));
+        text(h, x + 20, detail, 1, accent, line);
+        snprintf(line, sizeof(line),
+                 isfinite(m->density_kg_m3) ? "REFERENCE DENSITY %.4G KG/M3" : "REFERENCE DENSITY UNKNOWN",
+                 m->density_kg_m3);
+        text(h, x + 20, detail + 18, 1, white, line);
+        text(h, x + 20, detail + 38, 1, muted, "ELEMENTAL MASS FRACTIONS");
+        for (unsigned i = 0; i < m->constituent_count; i++) {
+            snprintf(line, sizeof(line), "%s %.2F%%", element_symbol(m->composition[i].element),
+                     m->composition[i].mass_fraction * 100);
+            text(h, x + 20 + (i % 4) * 152, detail + 56 + (i / 4) * 16, 1, white, line);
+        }
+        text(h, x + 20, detail + 132, 1, muted,
+             m->properties_estimated ? "REPRESENTATIVE PRESET / PROPERTIES VARY IN NATURE"
+                                     : "ELEMENT REFERENCE / UNKNOWN PROPERTIES REMAIN UNKNOWN");
+        if (m->pure_element >= 0 && element_get((ElementId)m->pure_element)->phase_predicted)
+            text(h, x + 20, detail + 150, 1, muted, "ELEMENT STANDARD STATE IS PREDICTED");
+    } else
+        text(h, x + 20, y + 106, 1, muted, "NO MATERIALS MATCH THIS SEARCH");
+    text(h, x + 20, y + pane_height - 34, 1, white, "ENTER SELECT / ESC CANCEL / BACKSPACE EDIT SEARCH");
 }

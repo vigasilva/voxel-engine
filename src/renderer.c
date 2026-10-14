@@ -32,7 +32,7 @@ typedef struct {
     float material_color[MAT_COUNT][4];
     float planet_axes[4];
 } RenderGlobals;
-_Static_assert(sizeof(RenderGlobals) == 704, "GLSL std140 globals layout");
+_Static_assert(sizeof(RenderGlobals) == 528 + MAT_COUNT * 16, "GLSL std140 globals layout");
 struct Renderer {
     SDL_Window *window;
     VkInstance instance;

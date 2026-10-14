@@ -15,10 +15,9 @@ static int compare(const void *aa, const void *bb) {
     return 0;
 }
 static bool natural(Vec3 color) {
-    const uint16_t materials[] = {MAT_SOIL, MAT_GRASS, MAT_STONE, MAT_SAND, MAT_CLAY, MAT_ICE};
-    for (size_t i = 0; i < sizeof(materials) / sizeof(materials[0]); i++) {
-        const Material *m = material_get(materials[i]);
-        if (color.x == m->color[0] && color.y == m->color[1] && color.z == m->color[2])
+    for (uint16_t id = 1; id < MAT_ELEMENT_FIRST; id++) {
+        const Material *m = material_get(id);
+        if (m->natural_surface && color.x == m->color[0] && color.y == m->color[1] && color.z == m->color[2])
             return true;
     }
     return false;

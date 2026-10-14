@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "hud.h"
+#include "material_picker_sdl.h"
 #include "detail.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -212,6 +213,8 @@ int main(int argc, char **argv) {
            coarse || full_detail ? "FULL MAP" : "DYNAMIC LOD / FRUSTUM STREAMING", view_m,
            SCENE_BUILD_BUDGET);
     puts("F3 geometry; F4 workshop; [/] brush size; Tab mouse; F5 save; F9 load.");
+    MaterialPicker picker = {0};
+    SDL_StopTextInput();
     while (running && (!frame_limit || frames < frame_limit)) {
         uint64_t now = SDL_GetPerformanceCounter();
         float elapsed = (float)((double)(now - last) / (double)frequency);
@@ -222,6 +225,8 @@ int main(int argc, char **argv) {
             status[0] = 0;
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (material_picker_event(&picker, &event, &selected, &captured))
+                continue;
             if (event.type == SDL_QUIT)
                 running = false;
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
@@ -447,6 +452,7 @@ int main(int argc, char **argv) {
             push.fine_target[2] = (float)((d.z - world.origin.z) * VOXEL_SIZE_MM + hit.mm[2]);
             push.fine_target[3] = 1;
         }
+        hud_material_picker(&hud, &picker, width, height);
         if (hud.overflow || !renderer_draw(renderer, &push, camera.position, hud.vertices, hud.count)) {
             ok = false;
             break;

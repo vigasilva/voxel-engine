@@ -4,11 +4,13 @@
 #include "planet.h"
 #include "resources.h"
 #include "solar.h"
+#include "material_picker.h"
 typedef struct {
     Vertex *vertices;
     size_t count, capacity;
     bool overflow;
 } Hud;
+void hud_material_picker(Hud *hud, const MaterialPicker *picker, int width, int height);
 bool hud_init(Hud *hud, size_t capacity);
 void hud_destroy(Hud *hud);
 void hud_build(Hud *hud, const World *world, RayHit hit, uint16_t selected, WorldPosition camera, int width,

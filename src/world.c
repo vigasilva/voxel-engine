@@ -324,7 +324,9 @@ bool world_generate(World *w, uint32_t seed) {
             return false;
         }
     }
-    for (int m = 1; m < MAT_COUNT; m++) {
+    /* The stock showcase fits the original presets; the full catalogue is
+       available through the editor without growing this fixed laboratory. */
+    for (int m = 1; m <= MAT_ICE; m++) {
         int x = 30 + m * 8, z = 64, y = WORLD_Y - 1;
         while (y > 0 &&
                world_get(&fresh, fresh.origin.x + x, fresh.origin.y + y - 1, fresh.origin.z + z).material ==
