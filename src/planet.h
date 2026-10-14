@@ -162,6 +162,13 @@ const char *planet_detail_directory(const Planet *planet);
 bool planet_detail_sample(const Planet *planet, double lat, double lon, double *height, bool *water);
 bool planet_river_sample(const Planet *planet, double lat, double lon, double *center_lat, double *center_lon,
                          double *depth);
+typedef struct {
+    bool wet, marine;
+    double level_m, shore_m, depth_m, bank_width_m;
+} PlanetWaterProfile;
+/* Returns native mask coverage, including known dry land. */
+bool planet_detail_water(const Planet *planet, double lat, double lon, PlanetWaterProfile *profile);
+bool planet_river_profile(const Planet *planet, double lat, double lon, PlanetWaterProfile *profile);
 bool planet_water_elevation(const Planet *planet, double lat, double lon, double *height);
 double planet_visible_elevation(const Planet *planet, double lat, double lon);
 uint16_t planet_visible_material(const Planet *planet, double lat, double lon);

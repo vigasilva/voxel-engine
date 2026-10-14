@@ -13,7 +13,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Detailed Earth data | NOAA global/regional relief, sparse Copernicus GLO-30 heights, WorldCover water masks, and Natural Earth river centerlines. | Coverage is sparse and source heights include surface objects. Add finer regional providers and retain source resolution/provenance. |
 | Procedural terrain | Deterministic small-scale noise supplements measured heights; fallback areas receive larger noise octaves. | This is not yet a biome-aware landscape generator or a model of mountain erosion. |
 | Distant textures | Bakes engine heights, material IDs, and inland-water classification; no photographic Earth imagery. | Current material classification is too simple for a realistic global biome appearance. |
-| Water | Editable non-solid material and a dedicated optical surface shader. | Native water height follows the sampled DSM and can rise along slopes; beds use an abrupt estimated depth. Implement connected level surfaces and gradual banks/beds. No fluid solver exists. |
+| Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
 | Material composition | Eleven material IDs and illustrative elemental fractions; temperature is stored per voxel. | Only eight elements exist. Add all 118 elements, common geological recipes, and explicit physical states. Thermal transfer and chemistry remain future simulation work. |
 | Solar System and relativity | Nine mutually gravitating bodies, approximate J2000 initial conditions, special-relativistic helpers, and leading weak-field Schwarzschild corrections. | Not a full Einstein field solver. Other planets are analytic renderings, not editable terrain worlds. |
 | Resource visualizers | CPU/RAM/tracked Vulkan allocations, frame history, material slices, patch queues, and occlusion counts. | Material slices are samples, not an ore-deposit generator; driver-wide GPU usage is not measured. |
@@ -30,7 +30,8 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Reuse completed stationary patch selections instead of repeatedly sampling/replanning the quadtree; invalidate on camera, projection, source, edit, or world-shape changes.
 - [x] Store static planet meshes in device-local memory and batch uploads through a reusable staging arena with explicit transfer/read synchronization.
 - [ ] Validate occlusion with the revised rendering/cache lifecycle.
-- [ ] Flatten connected water surfaces and provide gradual riverbeds and shore transitions.
+- [x] Flatten native connected lake surfaces, keep river cross-sections level, and provide gradual riverbeds/shore transitions.
+- [ ] Reconcile water heads across tile boundaries and improve river-network classification beyond the local estimated profiles.
 - [ ] Add an inspectable procedural biome/landscape generation tool and use its rules over measured terrain.
 - [ ] Improve mountainous fallback terrain without claiming synthetic relief is surveyed geography.
 - [ ] Represent world material/biome states in the engine-derived space view.

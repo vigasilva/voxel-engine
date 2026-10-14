@@ -814,6 +814,12 @@ static void test_atomic_edits(void) {
     CHECK(planet_saved_chunks(&p) == 8);
     CHECK(planet_voxel(&p, edge, 0, 0).temperature_k == 400);
     planet_destroy(&p);
+    CHECK(sqlite3_open(file, &db) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "UPDATE terrain_config SET version=4,checksum=0", NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(db);
+    CHECK(planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG, EARTH_A_METERS, EARTH_B_METERS));
+    CHECK(planet_saved_chunks(&p) == 8 && planet_voxel(&p, edge, 0, 0).temperature_k == 400);
+    planet_destroy(&p);
     CHECK(!planet_init(&p, TEST_EARTH_DATA, file, EARTH_MASS_KG * 2, EARTH_A_METERS, EARTH_B_METERS));
     planet_destroy(&p);
     CHECK(sqlite3_open(file, &db) == SQLITE_OK);
@@ -957,7 +963,10 @@ static void test_inland_water_and_detail(void) {
     double lat = 40.010509259259294, lon = -104.9581944444449, native, level;
     bool water;
     CHECK(planet_detail_sample(&p, lat, lon, &native, &water) && water && native > 1500);
-    CHECK(planet_water_elevation(&p, lat, lon, &level) && fabs(level - native) < .001);
+    CHECK(planet_water_elevation(&p, lat, lon, &level) && level > 1500 && fabs(level - native) < 10);
+    PlanetWaterProfile profile;
+    CHECK(planet_detail_water(&p, lat, lon, &profile) && profile.wet && !profile.marine);
+    CHECK(profile.shore_m > profile.bank_width_m);
     double inland_level = level;
     CHECK(fabs(planet_elevation(&p, lat, lon) - (level - 2)) < .001);
     CHECK(planet_visible_material(&p, lat, lon) == MAT_WATER);

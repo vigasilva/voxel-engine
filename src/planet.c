@@ -119,7 +119,7 @@ bool planet_init(Planet *p, const char *earth_file, const char *save_file, doubl
     const char *names[] = {"colorado", "sydney", "himalaya"};
     const char *slash = strrchr(earth_file, '/');
     size_t prefix = slash ? (size_t)(slash - earth_file + 1) : 0;
-    p->terrain_checksum = p->earth.checksum ^ 0x52454c34u;
+    p->terrain_checksum = p->earth.checksum ^ 0x52454c35u;
     char base[1024], fine[1200];
     if (prefix >= sizeof(base)) {
         planet_destroy(p);
@@ -295,7 +295,7 @@ Voxel planet_base_voxel(const Planet *p, DVec3 position) {
         bool wet = planet_water_elevation(p, g.latitude_deg, g.longitude_deg, &level);
         return (Voxel){wet && g.altitude_m < level ? MAT_WATER : MAT_AIR, 0, 288.15f};
     }
-    uint16_t surface = planet_surface_material(g.latitude_deg, g.longitude_deg, h * EARTH_A_METERS / p->a_m);
+    uint16_t surface = planet_surface_material(g.latitude_deg, g.longitude_deg, fmax(0, h * EARTH_A_METERS / p->a_m));
     uint16_t material = depth > 2                                   ? MAT_STONE
                         : surface == MAT_SAND || surface == MAT_ICE ? surface
                         : depth > .04                               ? MAT_SOIL

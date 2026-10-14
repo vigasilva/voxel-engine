@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 #include "planet.h"
+#include "hydrology.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,8 @@ typedef struct {
     uint32_t nx, ny, wx, wy;
     double lon0, lat0, dx, dy;
     int lat_key, lon_key;
+    Hydrology hydrology;
+    bool hydrology_attempted;
 } DetailMap;
 typedef struct {
     float lon0, lat0, lon1, lat1, width;
@@ -46,6 +49,7 @@ static double get64(const unsigned char *p) {
     return value;
 }
 static void unmap(DetailMap *m) {
+    hydrology_destroy(&m->hydrology);
 #ifdef __unix__
     if (m->data)
         munmap(m->data, m->bytes);
@@ -203,9 +207,9 @@ size_t planet_detail_refresh(Planet *p) {
     }
     return added;
 }
-bool planet_detail_sample(const Planet *p, double lat, double lon, double *height, bool *water) {
-    if (!p->terrain || !isfinite(lat) || !isfinite(lon))
-        return false;
+static DetailMap *detail_at(const Planet *p, double lat, double lon, double *x, double *y) {
+    if (!p->terrain || !isfinite(lat) || !isfinite(lon) || fabs(lat) > 90)
+        return NULL;
     lon = remainder(lon, 360);
     int lat_key = (int)floor(lat * 10), lon_key = (int)floor(lon * 10);
     static const int offsets[9][2] = {{0, 0},   {-1, 0}, {1, 0},  {0, -1}, {0, 1},
@@ -217,44 +221,118 @@ bool planet_detail_sample(const Planet *p, double lat, double lon, double *heigh
                                  : &p->terrain->maps[i];
         if (!m)
             continue;
-        double x = (lon - m->lon0) / m->dx, y = (lat - m->lat0) / m->dy;
-        if (x < 0 || y < 0 || x >= m->nx - 1 || y >= m->ny - 1)
-            continue;
-        int ix = (int)x, iy = (int)y;
-        double tx = x - ix, ty = y - iy;
-        double values[4];
-        bool valid = true;
-        for (int corner = 0; corner < 4; corner++) {
-            int32_t cm =
-                (int32_t)get32(m->data + 64 + 4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
-            if (cm == INT32_MIN || cm < -1200000 || cm > 1000000)
-                valid = false;
-            values[corner] = cm * .01;
-        }
-        if (height)
-            *height = valid ? ((values[0] * (1 - tx) + values[1] * tx) * (1 - ty) +
-                               (values[2] * (1 - tx) + values[3] * tx) * ty) *
-                                  p->a_m / EARTH_A_METERS
-                            : NAN;
-        double wx = m->dx * m->nx / m->wx, wy = m->dy * m->ny / m->wy;
-        int col = (int)floor((lon - (m->lon0 - m->dx * .5)) / wx),
-            row = (int)floor((lat - (m->lat0 - m->dy * .5)) / wy);
-        if (col < 0)
-            col = 0;
-        if (row < 0)
-            row = 0;
-        if (col >= (int)m->wx)
-            col = (int)m->wx - 1;
-        if (row >= (int)m->wy)
-            row = (int)m->wy - 1;
-        if (water)
-            *water = m->data[64 + (size_t)m->nx * m->ny * 4 + (size_t)row * m->wx + col] == 1;
-        return true;
+        *x = (lon - m->lon0) / m->dx;
+        *y = (lat - m->lat0) / m->dy;
+        if (*x >= 0 && *y >= 0 && *x < m->nx - 1 && *y < m->ny - 1)
+            return (DetailMap *)m; /* This Planet owns its lazily prepared cache. */
     }
-    return false;
+    return NULL;
+}
+static double detail_height(const DetailMap *m, double x, double y) {
+    x = fmax(0, fmin(m->nx - 1.000001, x));
+    y = fmax(0, fmin(m->ny - 1.000001, y));
+    int ix = (int)x, iy = (int)y;
+    double tx = x - ix, ty = y - iy, values[4];
+    for (int corner = 0; corner < 4; corner++) {
+        int32_t cm = (int32_t)get32(m->data + 64 + 4 * ((size_t)(iy + corner / 2) * m->nx + ix + corner % 2));
+        if (cm == INT32_MIN || cm < -1200000 || cm > 1000000)
+            return NAN;
+        values[corner] = cm * .01;
+    }
+    return (values[0] * (1 - tx) + values[1] * tx) * (1 - ty) + (values[2] * (1 - tx) + values[3] * tx) * ty;
+}
+static const uint8_t *water_mask(const DetailMap *m) {
+    return m->data + 64 + (size_t)m->nx * m->ny * 4;
+}
+static void water_coordinates(const DetailMap *m, double *x, double *y) {
+    *x = (*x + .5) * m->wx / m->nx - .5;
+    *y = (*y + .5) * m->wy / m->ny - .5;
+}
+static size_t water_index(const DetailMap *m, double x, double y) {
+    size_t ix = (size_t)fmax(0, fmin(m->wx - 1, floor(x + .5))),
+           iy = (size_t)fmax(0, fmin(m->wy - 1, floor(y + .5)));
+    return iy * m->wx + ix;
+}
+bool planet_detail_sample(const Planet *p, double lat, double lon, double *height, bool *water) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    if (height)
+        *height = detail_height(m, x, y) * p->a_m / EARTH_A_METERS;
+    water_coordinates(m, &x, &y);
+    if (water)
+        *water = water_mask(m)[water_index(m, x, y)] == 1;
+    return true;
+}
+static bool prepare_hydrology(PlanetTerrainData *t, DetailMap *m) {
+    if (m->hydrology_attempted)
+        return m->hydrology.body_ids != NULL;
+    m->hydrology_attempted = true;
+    char path[1400];
+    snprintf(path, sizeof(path), "%s/%s.hydr", t->directory, m->name);
+    uint32_t checksum = (uint32_t)crc32(0, m->data, 64);
+    if (!hydrology_load(&m->hydrology, path, checksum)) {
+        size_t count = (size_t)m->wx * m->wy;
+        float *elevation = malloc(count * sizeof(*elevation));
+        if (!elevation)
+            return false;
+        for (size_t y = 0; y < m->wy; y++)
+            for (size_t x = 0; x < m->wx; x++)
+                elevation[y * m->wx + x] =
+                    (float)detail_height(m, (x + .5) * m->nx / m->wx - .5, (y + .5) * m->ny / m->wy - .5);
+        double dx = m->dx * m->nx / m->wx * 111319.49079327358 *
+                    fmax(.001, cos((m->lat0 + m->ny * m->dy * .5) * PI / 180)),
+               dy = m->dy * m->ny / m->wy * 111319.49079327358;
+        bool ok = hydrology_build(&m->hydrology, elevation, water_mask(m), m->wx, m->wy, dx, dy);
+        free(elevation);
+        if (!ok)
+            return false;
+        if (hydrology_save(&m->hydrology, path, checksum)) {
+            Hydrology mapped = {0};
+            if (hydrology_load(&mapped, path, checksum)) {
+                hydrology_destroy(&m->hydrology);
+                m->hydrology = mapped;
+            }
+        }
+    }
+    t->bytes += m->hydrology.storage_bytes
+                    ? m->hydrology.storage_bytes
+                    : (size_t)m->wx * m->wy * 8 + m->hydrology.body_capacity * sizeof(HydroBody);
+    return true;
+}
+bool planet_detail_water(const Planet *p, double lat, double lon, PlanetWaterProfile *profile) {
+    double x, y;
+    DetailMap *m = detail_at(p, lat, lon, &x, &y);
+    if (!m)
+        return false;
+    double native = detail_height(m, x, y);
+    water_coordinates(m, &x, &y);
+    bool wet = water_mask(m)[water_index(m, x, y)] == 1;
+    *profile = (PlanetWaterProfile){.wet = wet, .level_m = NAN, .shore_m = -1e6};
+    /* Dry queries far from a shore need neither a water cache nor a build. */
+    bool nearby = wet || m->hydrology.body_ids;
+    for (int ky = -3; !nearby && ky <= 3; ky++)
+        for (int kx = -3; !nearby && kx <= 3; kx++)
+            nearby = water_mask(m)[water_index(m, x + kx, y + ky)] == 1;
+    if (!nearby)
+        return true;
+    double level = NAN, shore = -1e6;
+    bool marine = false;
+    if (prepare_hydrology(p->terrain, m))
+        level = hydrology_sample(&m->hydrology, x, y, &shore, &marine);
+    if (!isfinite(level) && wet)
+        level = native; /* Allocation/read-only fallback still honors the mask. */
+    double scale = p->a_m / EARTH_A_METERS;
+    profile->marine = marine;
+    profile->level_m = level * scale;
+    profile->shore_m = shore * scale;
+    profile->depth_m = 2 * scale;
+    profile->bank_width_m = 20 * scale;
+    return true;
 }
 static void river_bins(River r, int *x0, int *x1, int *y0, int *y1) {
-    double pad = r.width / 111000 + 1e-5;
+    double pad = (r.width + 30) / 111000 + 1e-5;
     double longitude_pad = pad / fmax(.05, cos((r.lat0 + r.lat1) * .5 * PI / 180));
     *x0 = (int)floor(fmin(r.lon0, r.lon1) - longitude_pad + 180);
     *x1 = (int)floor(fmax(r.lon0, r.lon1) + longitude_pad + 180);
@@ -373,6 +451,38 @@ bool planet_river_sample(const Planet *p, double lat, double lon, double *center
                 *center_lon = r.lon0 + u * (r.lon1 - r.lon0);
             if (depth)
                 *depth = fmax(2, fmin(20, r.width * .02)) * p->a_m / EARTH_A_METERS;
+        }
+    }
+    return hit;
+}
+bool planet_river_profile(const Planet *p, double lat, double lon, PlanetWaterProfile *profile) {
+    PlanetTerrainData *t = p->terrain;
+    if (!t || !t->rivers || !isfinite(lat) || !isfinite(lon) || fabs(lat) >= 90)
+        return false;
+    lon = remainder(lon, 360);
+    int x = (int)floor(lon + 180), y = (int)floor(lat + 90);
+    if (x == 360)
+        x = 0;
+    double scale = 111319.49079327358, cosine = fmax(.01, cos(lat * PI / 180)), best = HUGE_VAL;
+    bool hit = false;
+    for (uint32_t j = t->offsets[y * 360 + x]; j < t->offsets[y * 360 + x + 1]; j++) {
+        River r = t->rivers[t->ids[j]];
+        double ax = (r.lon0 - lon) * scale * cosine, ay = (r.lat0 - lat) * scale;
+        double dx = (r.lon1 - r.lon0) * scale * cosine, dy = (r.lat1 - r.lat0) * scale;
+        double length = dx * dx + dy * dy,
+               u = length > 0 ? fmax(0, fmin(1, -(ax * dx + ay * dy) / length)) : 0;
+        double distance = hypot(ax + u * dx, ay + u * dy), ratio = distance / r.width;
+        if (distance <= r.width + 30 && ratio < best) {
+            best = ratio;
+            hit = true;
+            double scale = p->a_m / EARTH_A_METERS;
+            *profile =
+                (PlanetWaterProfile){.wet = distance <= r.width,
+                                     .level_m = planet_measured_elevation(p, r.lat0 + u * (r.lat1 - r.lat0),
+                                                                          r.lon0 + u * (r.lon1 - r.lon0)),
+                                     .shore_m = (r.width - distance) * scale,
+                                     .depth_m = fmax(2, fmin(20, r.width * .02)) * scale,
+                                     .bank_width_m = fmin(20, r.width * .5) * scale};
         }
     }
     return hit;

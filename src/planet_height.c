@@ -1,4 +1,5 @@
 #include "planet.h"
+#include "hydrology.h"
 /* Continuous 3-D noise on the ellipsoid avoids longitude and polar seams.
    It supplies synthetic local relief, never claimed as measured Earth data. */
 static double fade(double t) {
@@ -38,14 +39,22 @@ size_t planet_elevation_bytes(const Planet *p) {
 }
 double planet_elevation(const Planet *p, double lat, double lon) {
     double h = planet_measured_elevation(p, lat, lon);
-    double level;
-    if (planet_water_elevation(p, lat, lon, &level) && h >= 0)
-        return level - 2 * p->a_m / EARTH_A_METERS;
+    PlanetWaterProfile profile = {0};
+    bool native_profile = planet_detail_water(p, lat, lon, &profile);
+    bool bank = native_profile ? isfinite(profile.level_m) : planet_river_profile(p, lat, lon, &profile);
+    if (bank && profile.wet) {
+        if (profile.marine)
+            return h < 0 ? h : hydrology_bed(h, 0, profile.shore_m, profile.depth_m, profile.bank_width_m);
+        return hydrology_bed(h, profile.level_m, fmax(0, profile.shore_m), profile.depth_m,
+                             profile.bank_width_m);
+    }
     bool water;
     double native;
     bool measured_detail = planet_detail_sample(p, lat, lon, &native, &water) && isfinite(native);
     if (!p->relief_enabled || !isfinite(lat) || !isfinite(lon))
-        return h;
+        return bank ? hydrology_bed(h, profile.level_m, fmin(0, profile.shore_m), profile.depth_m,
+                                    profile.bank_width_m)
+                    : h;
     Planet reference = {.a_m = EARTH_A_METERS, .b_m = EARTH_B_METERS};
     DVec3 point = planet_from_geographic(&reference, lat, lon, 0);
     const double scales[] = {1024, 256, 64, 16, 4, 1, .25, .0625};
@@ -55,7 +64,10 @@ double planet_elevation(const Planet *p, double lat, double lon) {
         relief += noise(point, scales[i]) * amplitudes[i];
     /* Preserve measured coastlines and the flat ocean surface. */
     double shore = fmin(1, fabs(h) / (20 * p->a_m / EARTH_A_METERS));
-    return h + relief * shore * p->a_m / EARTH_A_METERS;
+    h += relief * shore * p->a_m / EARTH_A_METERS;
+    return bank ? hydrology_bed(h, profile.level_m, fmin(0, profile.shore_m), profile.depth_m,
+                                profile.bank_width_m)
+                : h;
 }
 DVec3 planet_surface_normal(const Planet *p, DVec3 point) {
     PlanetGeo g = planet_geographic(p, point);
@@ -82,24 +94,24 @@ DVec3 planet_surface_normal(const Planet *p, DVec3 point) {
 }
 
 bool planet_water_elevation(const Planet *p, double lat, double lon, double *height) {
+    PlanetWaterProfile profile;
+    /* Native classifications override the coarse ocean/river inference, also
+       for dry depressions and inland lakes below the sea-level datum. */
+    if (planet_detail_water(p, lat, lon, &profile)) {
+        if (profile.wet && height)
+            *height = isfinite(profile.level_m) ? profile.level_m : planet_measured_elevation(p, lat, lon);
+        return profile.wet;
+    }
     double measured = planet_measured_elevation(p, lat, lon);
     if (measured < 0) {
         if (height)
             *height = 0;
         return true;
     }
-    double native;
-    bool water;
-    if (planet_detail_sample(p, lat, lon, &native, &water)) {
-        if (water && height)
-            *height = fmax(0, isfinite(native) ? native : measured);
-        return water;
-    }
-    double center_lat, center_lon, depth;
-    if (!planet_river_sample(p, lat, lon, &center_lat, &center_lon, &depth))
+    if (!planet_river_profile(p, lat, lon, &profile) || !profile.wet)
         return false;
     if (height)
-        *height = fmax(0, planet_measured_elevation(p, center_lat, center_lon));
+        *height = profile.level_m;
     return true;
 }
 double planet_visible_elevation(const Planet *p, double lat, double lon) {
@@ -110,5 +122,6 @@ uint16_t planet_visible_material(const Planet *p, double lat, double lon) {
     double level;
     if (planet_water_elevation(p, lat, lon, &level))
         return MAT_WATER;
-    return planet_surface_material(lat, lon, planet_elevation(p, lat, lon) * EARTH_A_METERS / p->a_m);
+    return planet_surface_material(lat, lon,
+                                   fmax(0, planet_elevation(p, lat, lon) * EARTH_A_METERS / p->a_m));
 }
