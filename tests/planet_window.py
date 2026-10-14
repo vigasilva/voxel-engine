@@ -48,6 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
     parser.add_argument("--screenshots", type=Path)
+    parser.add_argument("--state-only", action="store_true", help="focused material-state HUD and saved-matter check; requires tesseract")
     args = parser.parse_args()
     executable = args.executable.resolve()
     screenshots = args.screenshots.resolve() if args.screenshots else None
@@ -133,6 +134,32 @@ def main():
                     xdo("click", "3")
                     wait_for(lambda: copper_volume(save) == 1, "exact 1 mm3 copper placement")
                     snapshot("earth-ground.png")
+                    if args.state_only:
+                        def inspector_text():
+                            image = subprocess.check_output(["import", "-window", window, "-crop", "314x280+948+18",
+                                                             "-resize", "300%", "png:-"], env=env, timeout=10)
+                            return subprocess.check_output(["tesseract", "stdin", "stdout", "--psm", "6"],
+                                                           input=image, stderr=subprocess.DEVNULL, timeout=10).decode().upper().replace("LIGUID","LIQUID")
+                        def has_state(phase,model):
+                            text=inspector_text()
+                            return text if phase in text and model in text and "ASSUMED" in text else None
+                        copper_text=wait_for(lambda:has_state("ESTIMATE SOLID","ELEMENT REFERENCE"),"rendered copper state estimate",timeout=30)
+                        xdo("click","1")
+                        wait_for(lambda:copper_volume(save)==0,"state-test copper removal")
+                        xdo("key","9")
+                        xdo("click","3")
+                        wait_for(lambda:copper_volume(save,9)==1,"state-test water placement")
+                        water_text=wait_for(lambda:has_state("STATE LIQUID","IAPWS WATER"),"rendered IAPWS water state",timeout=30)
+                        snapshot("material-state-water.png")
+                        xdo("key","F5","Escape","Escape")
+                        assert app.wait(timeout=15)==0
+                        log.flush()
+                        output=Path(tmp,"app.log").read_text()
+                        assert "Vulkan validation:" not in output,output
+                        assert copper_volume(save,9)==1 and copper_volume(save)==0
+                        print(copper_text,water_text)
+                        print("PASS: rendered copper estimate/water equilibrium/assumed pressure; 1 mm saved matter intact; Vulkan validation clean")
+                        return
                     xdo("key", "F4", "minus", "minus", "minus")
                     time.sleep(.7)
                     # The swapchain converts linear material colors to sRGB.

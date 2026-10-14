@@ -23,8 +23,9 @@ const char *element_symbol(ElementId id) {
     return e ? e->symbol : "?";
 }
 const char *phase_name(PhysicalPhase phase) {
-    static const char *names[] = {"unknown", "solid", "liquid", "gas", "plasma"};
-    return phase >= PHASE_UNKNOWN && phase <= PHASE_PLASMA ? names[phase] : "unknown";
+    static const char *names[] = {"unknown",       "solid",      "liquid",   "gas",  "plasma",
+                                  "supercritical", "coexisting", "critical", "fluid"};
+    return phase >= PHASE_UNKNOWN && phase <= PHASE_FLUID ? names[phase] : "unknown";
 }
 bool elements_validate(void) {
     for (int i = 0; i < E_COUNT; i++) {

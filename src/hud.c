@@ -1,4 +1,5 @@
 #include "hud.h"
+#include "material_state.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -112,7 +113,7 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
     if (chunk_y < 256)
         chunk_y = 256;
     int footer_y = chunk_y + (hit.fine ? 24 : 0);
-    rect(h, (float)px, 18, 326, hit.hit ? footer_y + 10 : 78, panel);
+    rect(h, (float)px, 18, 326, hit.hit ? footer_y + 42 : 78, panel);
     text(h, px + 16, 34, 1, accent, "MATERIAL INSPECTOR");
     if (hit.hit) {
         Voxel v = world_hit_voxel(w, hit);
@@ -153,6 +154,13 @@ void hud_build(Hud *h, const World *w, RayHit hit, uint16_t selected, WorldPosit
         }
         snprintf(line, sizeof(line), "PRESET %s / M CATALOGUE", phase_name(m->reference_phase));
         text(h, px + 16, footer_y, 1, muted, line);
+        MaterialState state = material_state_query(v.material, v.temperature_k, STATE_REFERENCE_PRESSURE_PA);
+        snprintf(line, sizeof(line), "%s %s / 1 ATM ASSUMED",
+                 state.status == STATE_REFERENCE_ESTIMATE ? "ESTIMATE" : "STATE", phase_name(state.phase));
+        text(h, px + 16, footer_y + 16, 1, muted, line);
+        snprintf(line, sizeof(line), "%s / %s", state_model_name(state.model),
+                 state_status_name(state.status));
+        text(h, px + 16, footer_y + 32, 1, muted, line);
     } else
         text(h, px + 16, 60, 1, muted, "POINT AT A VOXEL TO INSPECT IT");
     int first = ((selected ? selected - 1 : 0) / 10) * 10 + 1;
@@ -233,7 +241,7 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
     if (status && *status)
         text(h, 34, 236, 1, accent, status);
     int px = width - 332;
-    rect(h, (float)px, 18, 314, hit.hit ? 242 : 70, panel);
+    rect(h, (float)px, 18, 314, hit.hit ? 274 : 70, panel);
     text(h, px + 16, 34, 1, accent, "PLANET MATERIAL INSPECTOR");
     if (hit.hit) {
         const Material *mat = material_get(hit.value.material);
@@ -269,6 +277,14 @@ void hud_build_planet(Hud *h, Planet *p, const PlanetBody *body, PlanetHit hit, 
                      isnan(source.vertical_accuracy_m) ? "UNKNOWN" : "DECLARED");
             text(h, px + 16, 228, 1, muted, line);
         }
+        MaterialState state =
+            material_state_query(hit.value.material, hit.value.temperature_k, STATE_REFERENCE_PRESSURE_PA);
+        snprintf(line, sizeof(line), "%s %s / 1 ATM ASSUMED",
+                 state.status == STATE_REFERENCE_ESTIMATE ? "ESTIMATE" : "STATE", phase_name(state.phase));
+        text(h, px + 16, 244, 1, white, line);
+        snprintf(line, sizeof(line), "%s / %s", state_model_name(state.model),
+                 state_status_name(state.status));
+        text(h, px + 16, 260, 1, muted, line);
 
     } else
         text(h, px + 16, 56, 1, muted, "POINT AT THE SURFACE TO EDIT");
@@ -394,15 +410,15 @@ void hud_relativity(Hud *h, int width, int height, double time, double scale, do
     Vec3 panel = v3(.018f, .03f, .042f), accent = v3(.37f, .79f, .59f), muted = v3(.48f, .58f, .62f);
     int x = width - 332;
     char line[160];
-    rect(h, (float)x, 272, 314, 102, panel);
-    text(h, x + 16, 286, 1, accent, "SOLAR SYSTEM / F11 INSPECT");
+    rect(h, (float)x, 304, 314, 102, panel);
+    text(h, x + 16, 318, 1, accent, "SOLAR SYSTEM / F11 INSPECT");
     snprintf(line, sizeof(line), "J2000 + %.3F DAYS / %.0F X", time / 86400, scale);
-    text(h, x + 16, 304, 1, muted, line);
+    text(h, x + 16, 336, 1, muted, line);
     snprintf(line, sizeof(line), "CLOCK RATE %.12F", rate);
-    text(h, x + 16, 322, 1, muted, line);
+    text(h, x + 16, 354, 1, muted, line);
     snprintf(line, sizeof(line), "CLOCK LAG %.6F MS", deficit * 1000);
-    text(h, x + 16, 340, 1, muted, line);
-    text(h, x + 16, 358, 1, accent, "SR + 1PN / F9 SPEED / F12 PAUSE");
+    text(h, x + 16, 372, 1, muted, line);
+    text(h, x + 16, 390, 1, accent, "SR + 1PN / F9 SPEED / F12 PAUSE");
 }
 void hud_build_solar(Hud *h, const SolarSystem *s, int focus, int width, int height, float fps, double scale,
                      double speed, double rate, double deficit) {

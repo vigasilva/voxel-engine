@@ -24,7 +24,7 @@ if (composition_from_atoms(&quartz, quartz_atoms, 2)) {
 }
 ```
 
-`material_composition` extracts normalized fractions from a material recipe. Every preset, including air, now has a normalized elemental recipe. Temperature/pressure phase queries and reactive air chemistry remain work in progress. A physical-state enum includes unknown, solid, liquid, gas, and plasma, but changing a voxel's temperature does not yet melt, evaporate, react, or move it.
+`material_composition` extracts normalized fractions from a material recipe. Every preset, including air, now has a normalized elemental recipe. [Temperature/pressure state queries](material-states.md) now support pure-water equilibrium correlations and marked elemental reference estimates, with unsupported conditions kept explicit. Reactive air chemistry remains unfinished. Changing a voxel's temperature does not yet melt, evaporate, react, or move it.
 
 These helpers preserve mass accounting, but a mixture of H and O does not establish whether it is water, dissolved gas, or separate phases. Future simulation must retain species/mineral phase identity and track reaction energetics independently from elemental fractions.
 
@@ -47,6 +47,7 @@ Press **M** in either editor, type a material name/family or element symbol, use
 ./build/material_catalog
 ./build/material_catalog "Granite"
 ./build/material_catalog "Oganesson (element)"
+./build/material_catalog "Water" 360 50000
 python3 tools/import_materials.py --check
 ```
 

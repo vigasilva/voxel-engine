@@ -3,7 +3,17 @@
 #include "element_ids.h"
 #include <stdbool.h>
 #include <stdint.h>
-typedef enum { PHASE_UNKNOWN, PHASE_SOLID, PHASE_LIQUID, PHASE_GAS, PHASE_PLASMA } PhysicalPhase;
+typedef enum {
+    PHASE_UNKNOWN,
+    PHASE_SOLID,
+    PHASE_LIQUID,
+    PHASE_GAS,
+    PHASE_PLASMA,
+    PHASE_SUPERCRITICAL,
+    PHASE_COEXISTING,
+    PHASE_CRITICAL,
+    PHASE_FLUID
+} PhysicalPhase;
 typedef struct {
     uint8_t atomic_number;
     const char *symbol, *name;

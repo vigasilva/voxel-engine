@@ -14,7 +14,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 | Procedural terrain | Shared biome/layer/climate rules and source-resolution-aware ridged/micro detail supplement measured heights; a reproducible tool exports synthetic or actual Earth samples. | Biome-aware generation and an export tool are implemented; climate/geology are estimates, with no hydraulic erosion model. |
 | Distant textures | Bakes engine heights, biome appearance and inland-water classification; coarse patches also cache engine colours independently from greedy geometry. No photographic Earth imagery. | Biome appearance now distinguishes canopy, soil, sand, snow and water. Global climate/geology remain procedural estimates; the overview atlas only rebakes at build time. |
 | Water | Editable non-solid material, optical surface shader, cached connected-mask lake/river profiles, and gradual shore/bed transitions shared by rendering and voxel/collision sampling. Native dry masks also preserve below-sea-level land. | Profiles are local terrain-derived estimates. Cross-tile body reconciliation, reliable flow networks, surveyed bathymetry, and a fluid solver remain future work. |
-| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and 186 stable placement materials; temperature is stored per voxel. | Add temperature/pressure phase queries and biome-aware use of the geological families. Reference standard states alone do not implement melting, flow, heat transfer, or chemistry. |
+| Material composition | Full 118-element reference catalogue, up to 16-element recipes, stoichiometric/mass-mixture helpers, and 186 stable placement materials; temperature is stored per voxel. | IAPWS pure-water state queries and marked elemental estimates are implemented; mixtures without models remain unknown. Stored temperature alone does not implement melting, flow, heat transfer or chemistry. |
 | Solar System and relativity | Nine mutually gravitating bodies, approximate J2000 initial conditions, special-relativistic helpers, and leading weak-field Schwarzschild corrections. | Not a full Einstein field solver. Other planets are analytic renderings, not editable terrain worlds. |
 | Resource visualizers | CPU/RAM/tracked Vulkan allocations, frame history, material slices, patch queues, and occlusion counts. | Material slices are samples, not an ore-deposit generator; driver-wide GPU usage is not measured. |
 
@@ -39,7 +39,7 @@ This tracks the reality-simulator proof of concept's next development pass. Comp
 - [x] Add all 118 elements with missing/predicted metadata and reproducible offline import.
 - [x] Add stoichiometric and mass-mixture composition helpers with validation.
 - [x] Add common geological/volatile families, all 118 elemental placement materials, and searchable editor selection.
-- [ ] Add temperature/pressure physical state queries and transition foundations.
+- [x] Add temperature/pressure physical state queries and transition foundations: IAPWS pure-water phases, elemental reference estimates, explicit unsupported models, inspector and catalogue diagnostics.
 - [ ] Improve the mesh appearance of natural voxel excavations and verify saved voxel values remain intact.
 - [x] Add the common finer-source pipeline, USGS on-demand sampling, attribution and explicit coverage.
 - [x] Extend automatic fine terrain to public ArcticDEM/REMA 2 m mosaics, with verified reference conversion and small starter crops.
